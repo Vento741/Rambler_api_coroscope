@@ -58,3 +58,12 @@ wheels/
 *.db
 *.sqlite
 *.sqlite3 
+
+# Папки и документация
+docs/
+.cursor/
+
+# Папки и файлы для разработки
+.cursor/
+.cursorignore
+.cursorrules
