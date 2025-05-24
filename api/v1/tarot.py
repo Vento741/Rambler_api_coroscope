@@ -7,13 +7,13 @@ from fastapi import APIRouter, HTTPException
 from modules.tarot import TarotParser, ApiResponse
 from modules.tarot.service import TarotService
 from core.cache import CacheManager
-from config import settings
+import config 
 
 router = APIRouter(prefix="/api/v1/tarot")
 
 # Инициализация зависимостей
-cache_manager = CacheManager(ttl_minutes=settings.CACHE_TTL_MINUTES)
-parser = TarotParser(timeout=settings.PARSER_TIMEOUT_SECONDS)
+cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
+parser = TarotParser(timeout=config.PARSER_TIMEOUT)
 service = TarotService(cache_manager, parser)
 
 @router.get("/current", response_model=ApiResponse)

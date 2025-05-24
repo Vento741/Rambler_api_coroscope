@@ -12,7 +12,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from config import settings
+import config
 from core.cache import CacheManager
 from api.v1 import health, moon_calendar, tarot, numerology
 from api.middleware import log_request_middleware
@@ -33,7 +33,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Глобальные объекты
-cache_manager = CacheManager(ttl_minutes=settings.CACHE_TTL_MINUTES)
+cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
 
 # ================= BACKGROUND TASKS =================
 
@@ -41,7 +41,7 @@ async def cleanup_cache_task(cache_manager: CacheManager):
     """Фоновая задача очистки кэша"""
     while True:
         await cache_manager.clear_expired()
-        await asyncio.sleep(settings.CACHE_CLEANUP_INTERVAL_SECONDS)
+        await asyncio.sleep(config.CACHE_CLEANUP_INTERVAL)
 
 # ================= APPLICATION =================
 
@@ -67,16 +67,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Moon Calendar API",
     description="Асинхронное API для получения данных лунного календаря",
-    version=settings.VERSION,
-    docs_url="/docs" if settings.DEBUG else None,
-    redoc_url="/redoc" if settings.DEBUG else None,
+    version=config.APP_VERSION,
+    docs_url="/docs" if config.DEBUG else None,
+    redoc_url="/redoc" if config.DEBUG else None,
     lifespan=lifespan
 )
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -123,8 +123,8 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+        host=config.HOST,
+        port=config.PORT,
+        reload=config.DEBUG,
+        log_level=config.LOG_LEVEL.lower()
     )

@@ -6,13 +6,13 @@ from fastapi import APIRouter, HTTPException
 
 from modules.moon_calendar import MoonCalendarParser, ApiResponse, MoonCalendarService
 from core.cache import CacheManager
-from config import settings
+import config 
 
 router = APIRouter(prefix="/api/v1/moon-calendar")
 
 # Инициализация зависимостей
-cache_manager = CacheManager(ttl_minutes=settings.CACHE_TTL_MINUTES)
-parser = MoonCalendarParser(timeout=settings.PARSER_TIMEOUT_SECONDS)
+cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
+parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
 service = MoonCalendarService(cache_manager, parser)
 
 @router.get("/current", response_model=ApiResponse)
