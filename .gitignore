@@ -62,7 +62,7 @@ wheels/
 # Папки и документация
 docs/
 .cursor/
-.cursor/rules/
+.rules/
 
 # Папки и файлы для разработки
 .cursor/
