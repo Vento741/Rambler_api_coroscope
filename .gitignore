@@ -1,0 +1,60 @@
+# Виртуальное окружение
+venv/
+ramvenv/
+env/
+.env
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Логи
+logs/
+*.log
+
+# Временные файлы
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Сгенерированные файлы
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Файлы конфигурации
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Файлы сессий
+.session/
+
+# Файлы базы данных
+*.db
+*.sqlite
+*.sqlite3 
