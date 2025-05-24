@@ -62,10 +62,10 @@ wheels/
 # Папки и документация
 docs/
 
-
 # Папки и файлы для разработки
 .cursorignore
 .cursorrules
 .cursor/
+.cursor
 .rules/
 rules/
