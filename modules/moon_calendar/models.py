@@ -17,6 +17,7 @@ class CalendarDayResponse(BaseModel):
     moon_phase: str
     moon_days: List[MoonDayResponse]
     recommendations: Dict[str, str]
+    raw_text: Optional[str] = None # <--- Новое поле
 
 class ApiResponse(BaseModel):
     """Общая модель ответа API"""
