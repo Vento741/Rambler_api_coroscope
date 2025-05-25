@@ -28,8 +28,11 @@ CORS_ORIGINS: List[str] = [
     "https://puzzlebot.top",
     "https://help.puzzlebot.top",
     "https://www.puzzlebot.top",
-    "*",
-    ""
+    "https://app.puzzlebot.top",
+    "http://app.puzzlebot.top",
+    "https://bot.puzzlebot.top",
+    "http://bot.puzzlebot.top",
+    "*"
 ]
 
 # Добавление дополнительных CORS origins из переменной окружения

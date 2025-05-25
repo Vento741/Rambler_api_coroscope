@@ -78,9 +78,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    max_age=86400,  # 24 часа
 )
+
+# Обработчик OPTIONS запросов для CORS preflight
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    return {"detail": "OK"}
 
 # Middleware для логирования запросов
 @app.middleware("http")
