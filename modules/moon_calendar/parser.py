@@ -192,10 +192,13 @@ class MoonCalendarParser:
         moon_phase = self._parse_moon_phase(soup)
         moon_days = self._parse_moon_days(soup, calendar_date.year)
         recommendations = self._parse_recommendations(soup)
+
+        raw_text_content = " ".join(soup.stripped_strings) # или более специфичный селектор
         
         return {
             "date": calendar_date.isoformat(),
             "moon_phase": moon_phase,
             "moon_days": moon_days,
-            "recommendations": recommendations
+            "recommendations": recommendations,
+            "raw_text": raw_text_content # <--- Новое поле
         }
