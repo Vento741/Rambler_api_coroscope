@@ -22,6 +22,14 @@ CORS_ORIGINS: List[str] = [
     "http://localhost:8000",
     "http://127.0.0.1",
     "http://127.0.0.1:8000",
+    "http://81.177.6.93",
+    "https://81.177.6.93",
+    "http://puzzlebot.top",
+    "https://puzzlebot.top",
+    "https://help.puzzlebot.top",
+    "https://www.puzzlebot.top",
+    "*",
+    ""
 ]
 
 # Добавление дополнительных CORS origins из переменной окружения
