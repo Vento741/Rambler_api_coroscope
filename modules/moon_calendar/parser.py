@@ -209,7 +209,9 @@ class MoonCalendarParser:
                 full_text_content += f"- {title}: {text}\n"
         
         return {
-            "success": True, # Важно для PuzzleBot, если он ожидает это поле
-            "full_moon_text_data": full_text_content, # Единственное текстовое поле с данными
-            "date_api": calendar_date.isoformat() # Можно оставить дату отдельно, если PuzzleBot ее использует
+            "date": calendar_date.isoformat(),
+            "moon_phase": moon_phase,
+            "moon_days": moon_days_data,
+            "recommendations": recommendations_data,
+            "raw_text": full_text_content
         }
