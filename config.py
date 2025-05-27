@@ -2,7 +2,7 @@
 Конфигурация приложения
 """
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pathlib import Path
 
 # Базовые настройки приложения
@@ -63,6 +63,43 @@ SSL_KEY_PATH: Optional[str] = os.getenv("SSL_KEY_PATH")
 
 # Настройки прокси
 PROXY_PREFIX = os.getenv("PROXY_PREFIX", "")
+
+# Настройки OpenRouter API
+OPENROUTER_API_URL = os.getenv("URL_LINK_OPENROUTER", "https://openrouter.ai/api/v1/chat/completions")
+OPENROUTER_API_KEYS = [
+    key for key in [
+        os.getenv("OPENROUTER_API_KEY_1", ""),
+        os.getenv("OPENROUTER_API_KEY_2", ""),
+        os.getenv("OPENROUTER_API_KEY_3", "")
+    ] if key
+]
+
+# Модели OpenRouter
+OPENROUTER_MODELS = [
+    "anthropic/claude-3-haiku-20240307",
+    "anthropic/claude-3-sonnet-20240229",
+    "meta-llama/llama-3-8b-instruct",
+    "google/gemma-7b-it"
+]
+
+# Настройки промптов для разных типов пользователей
+OPENROUTER_PROMPTS = {
+    "free": {
+        "system_message": "Ты - эксперт по лунному календарю. Проанализируй информацию о лунном дне и предоставь краткую сводку. Формат ответа: 1. Дата, 2. Фаза луны, 3. Сегодняшний лунный день с кратким описанием, 4. Основной совет дня.",
+        "max_tokens": 350,
+        "temperature": 0.6
+    },
+    "premium": {
+        "system_message": "Ты - эксперт по лунному календарю. Предоставь детальный анализ лунного дня со всеми рекомендациями. Структурируй информацию по разделам: 1. Дата и фаза луны, 2. Подробная информация о лунных днях, 3. Общие рекомендации на день (одежда, аромат, талисманы и т.д.).",
+        "max_tokens": 1500,
+        "temperature": 0.7
+    }
+}
+
+# Настройки фоновых задач
+BACKGROUND_TASKS = {
+    "update_cache_interval_minutes": 30  # Обновлять кэш каждые 30 минут
+}
 
 # Функция для получения полного URL API
 def get_api_url(path: str = "") -> str:

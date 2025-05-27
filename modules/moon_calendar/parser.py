@@ -192,26 +192,10 @@ class MoonCalendarParser:
         moon_phase = self._parse_moon_phase(soup)
         moon_days_data = self._parse_moon_days(soup, calendar_date.year)
         recommendations_data = self._parse_recommendations(soup)
-
-        # Формируем единый текстовый блок для передачи в PuzzleBot
-        full_text_content = f"Дата: {calendar_date.isoformat()}\n"
-        full_text_content += f"Фаза луны: {moon_phase}\n\n"
-        
-        if moon_days_data:
-            full_text_content += "Лунные дни:\n"
-            for day in moon_days_data:
-                full_text_content += f"- {day.get('name', '')}: ({day.get('start', '')} - {day.get('end', '')})\nИнфо: {day.get('info', '')}\n"
-            full_text_content += "\n"
-
-        if recommendations_data:
-            full_text_content += "Рекомендации:\n"
-            for title, text in recommendations_data.items():
-                full_text_content += f"- {title}: {text}\n"
         
         return {
             "date": calendar_date.isoformat(),
             "moon_phase": moon_phase,
             "moon_days": moon_days_data,
-            "recommendations": recommendations_data,
-            "raw_text": full_text_content
+            "recommendations": recommendations_data
         }

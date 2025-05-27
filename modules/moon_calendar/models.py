@@ -1,7 +1,7 @@
 """
 Модели данных для лунного календаря
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from pydantic import BaseModel
 
 class MoonDayResponse(BaseModel):
@@ -17,11 +17,10 @@ class CalendarDayResponse(BaseModel):
     moon_phase: str
     moon_days: List[MoonDayResponse]
     recommendations: Dict[str, str]
-    raw_text: Optional[str] = None # <--- Новое поле
 
 class ApiResponse(BaseModel):
     """Общая модель ответа API"""
     success: bool
-    data: Optional[CalendarDayResponse] = None
+    data: Optional[Union[CalendarDayResponse, str]] = None
     error: Optional[str] = None
     cached: bool = False

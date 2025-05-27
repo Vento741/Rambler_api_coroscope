@@ -14,8 +14,10 @@ from fastapi.responses import JSONResponse
 
 import config
 from core.cache import CacheManager
-from api.v1 import health, moon_calendar, tarot, numerology
+from api.v1 import health, moon_calendar, tarot, numerology, astro_bot
 from api.middleware import log_request_middleware
+from modules.moon_calendar import MoonCalendarParser
+from modules.moon_calendar.tasks import MoonCalendarTasks
 
 # Создаем директорию для логов, если она не существует
 logs_dir = Path("logs")
@@ -34,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 # Глобальные объекты
 cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
+parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
+moon_calendar_tasks = MoonCalendarTasks(cache_manager, parser)
 
 # ================= BACKGROUND TASKS =================
 
@@ -42,6 +46,14 @@ async def cleanup_cache_task(cache_manager: CacheManager):
     while True:
         await cache_manager.clear_expired()
         await asyncio.sleep(config.CACHE_CLEANUP_INTERVAL)
+
+async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
+    """Фоновая задача обновления кэша лунного календаря"""
+    # Сначала обновляем кэш сразу при запуске
+    await tasks.update_calendar_cache()
+    
+    # Затем запускаем периодическое обновление
+    await tasks.run_periodic_update(config.BACKGROUND_TASKS["update_cache_interval_minutes"])
 
 # ================= APPLICATION =================
 
@@ -53,13 +65,19 @@ async def lifespan(app: FastAPI):
     # Запускаем фоновую задачу очистки кэша
     cleanup_task = asyncio.create_task(cleanup_cache_task(cache_manager))
     
+    # Запускаем фоновую задачу обновления кэша лунного календаря
+    update_calendar_task = asyncio.create_task(update_moon_calendar_cache_task(moon_calendar_tasks))
+    
     yield
     
     # Shutdown
     logger.info("Выключение Moon Calendar API Service...")
     cleanup_task.cancel()
+    update_calendar_task.cancel()
+    
     try:
         await cleanup_task
+        await update_calendar_task
     except asyncio.CancelledError:
         pass
 
@@ -122,6 +140,7 @@ app.include_router(health.router)
 app.include_router(moon_calendar.router)
 app.include_router(tarot.router)
 app.include_router(numerology.router)
+app.include_router(astro_bot.router)
 
 # ================= ENTRY POINT =================
 
