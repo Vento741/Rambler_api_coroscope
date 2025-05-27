@@ -76,8 +76,8 @@ OPENROUTER_API_KEYS = [
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
+    "google/gemini-2.0-flash-exp:free",
     "google/gemini-2.0-flash-001",
-    "google/gemini-2.0-flash-exp:free"
     "deepseek/deepseek-v3-base:free",
     "deepseek/deepseek-chat-v3-0324:free"
     

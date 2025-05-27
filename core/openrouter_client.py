@@ -122,7 +122,7 @@ class OpenRouterClient:
                                 result = await response.json()
                                 # Проверка структуры ответа
                                 if not result or 'choices' not in result:
-                                    logger.warning(f"Получен некорректный ответ от OpenRouter: {await response.text()}")
+                                    logger.info(f"Получен некорректный ответ от OpenRouter: {await response.text()}")
                                     # Ротация ключа при некорректном ответе
                                     self._rotate_key()
                                     if attempt == retry_count - 1:
@@ -131,7 +131,7 @@ class OpenRouterClient:
                                     
                                 # Проверка наличия списка choices и его непустоты
                                 if not result.get('choices'):
-                                    logger.warning("Получен ответ с пустым списком choices")
+                                    logger.info("Получен ответ с пустым списком choices")
                                     # Ротация ключа при пустом списке choices
                                     self._rotate_key()
                                     if attempt == retry_count - 1:
@@ -142,14 +142,14 @@ class OpenRouterClient:
                                 try:
                                     first_choice = result['choices'][0]
                                     if 'message' not in first_choice or 'content' not in first_choice.get('message', {}):
-                                        logger.warning("Некорректная структура первого элемента choices")
+                                        logger.info("Некорректная структура первого элемента choices")
                                         # Ротация ключа при некорректной структуре
                                         self._rotate_key()
                                         if attempt == retry_count - 1:
                                             raise NetworkException("Некорректная структура ответа от OpenRouter API")
                                         continue
                                 except IndexError:
-                                    logger.warning("Ошибка при доступе к первому элементу списка choices")
+                                    logger.info("Ошибка при доступе к первому элементу списка choices")
                                     # Ротация ключа при ошибке индекса
                                     self._rotate_key()
                                     if attempt == retry_count - 1:
@@ -295,7 +295,7 @@ class OpenRouterClient:
                 
                 # Если текст пустой, пробуем другую модель/ключ
                 if not text.strip():
-                    logger.warning("Получен пустой ответ от OpenRouter, пробуем другую модель/ключ")
+                    logger.info("Получен пустой ответ от OpenRouter, пробуем другую модель/ключ")
                     if attempt % 2 == 0:
                         self._rotate_key()
                     else:
