@@ -155,6 +155,11 @@ class OpenRouterClient:
         # Получаем API ключ для модели
         api_key = self._get_key_for_model(model)
         
+        # Проверка API ключа
+        if not api_key or len(api_key) < 20:  # Минимальная длина для OpenRouter API ключа
+            logger.error(f"Некорректный API ключ для модели {model}: {api_key}")
+            raise NetworkException(f"Некорректный API ключ для модели {model}")
+        
         # Подготавливаем payload в зависимости от типа запроса
         if request_type == "openai":
             payload = self._prepare_openai_payload(model, messages, max_tokens, temperature)
@@ -167,7 +172,7 @@ class OpenRouterClient:
         for attempt in range(retry_count):
             try:
                 # Увеличиваем таймаут до минимум 3 секунд
-                actual_timeout = max(model_timeout, 3)
+                actual_timeout = max(model_timeout, 5)
                 
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=actual_timeout)) as session:
                     headers = self._prepare_headers(api_key)
@@ -179,82 +184,104 @@ class OpenRouterClient:
                     # Логируем payload для отладки
                     logger.debug(f"Payload запроса: {json.dumps(payload, ensure_ascii=False)}")
                     
-                    async with session.post(
-                        self.api_url,
-                        headers=headers,
-                        json=payload
-                    ) as response:
-                        if response.status == 200:
-                            try:
-                                result = await response.json()
-                                # Проверка структуры ответа
-                                if not result or 'choices' not in result:
-                                    logger.info(f"Получен некорректный ответ от OpenRouter: {await response.text()}")
-                                    # Ротация ключа при некорректном ответе
-                                    self._rotate_key()
-                                    if attempt == retry_count - 1:
-                                        raise NetworkException("Некорректный ответ от OpenRouter API")
-                                    continue
-                                    
-                                # Проверка наличия списка choices и его непустоты
-                                if not result.get('choices'):
-                                    logger.info("Получен ответ с пустым списком choices")
-                                    # Ротация ключа при пустом списке choices
-                                    self._rotate_key()
-                                    if attempt == retry_count - 1:
-                                        raise NetworkException("Получен ответ с пустым списком choices")
-                                    continue
-                                
-                                # Проверка первого элемента списка choices
+                    try:
+                        async with session.post(
+                            self.api_url,
+                            headers=headers,
+                            json=payload,
+                            ssl=False  # Отключаем проверку SSL сертификатов
+                        ) as response:
+                            response_text = await response.text()
+                            logger.debug(f"Полный ответ: {response_text}")
+                            
+                            if response.status == 200:
                                 try:
-                                    first_choice = result['choices'][0]
-                                    if 'message' not in first_choice or 'content' not in first_choice.get('message', {}):
-                                        logger.info("Некорректная структура первого элемента choices")
-                                        # Ротация ключа при некорректной структуре
+                                    result = json.loads(response_text)
+                                    # Проверка структуры ответа
+                                    if not result or 'choices' not in result:
+                                        logger.info(f"Получен некорректный ответ от OpenRouter: {response_text}")
+                                        # Ротация ключа при некорректном ответе
                                         self._rotate_key()
                                         if attempt == retry_count - 1:
-                                            raise NetworkException("Некорректная структура ответа от OpenRouter API")
+                                            raise NetworkException("Некорректный ответ от OpenRouter API")
                                         continue
-                                except IndexError:
-                                    logger.info("Ошибка при доступе к первому элементу списка choices")
-                                    # Ротация ключа при ошибке индекса
+                                        
+                                    # Проверка наличия списка choices и его непустоты
+                                    if not result.get('choices'):
+                                        logger.info("Получен ответ с пустым списком choices")
+                                        # Ротация ключа при пустом списке choices
+                                        self._rotate_key()
+                                        if attempt == retry_count - 1:
+                                            raise NetworkException("Получен ответ с пустым списком choices")
+                                        continue
+                                    
+                                    # Проверка первого элемента списка choices
+                                    try:
+                                        first_choice = result['choices'][0]
+                                        if 'message' not in first_choice or 'content' not in first_choice.get('message', {}):
+                                            logger.info("Некорректная структура первого элемента choices")
+                                            # Ротация ключа при некорректной структуре
+                                            self._rotate_key()
+                                            if attempt == retry_count - 1:
+                                                raise NetworkException("Некорректная структура ответа от OpenRouter API")
+                                            continue
+                                    except IndexError:
+                                        logger.info("Ошибка при доступе к первому элементу списка choices")
+                                        # Ротация ключа при ошибке индекса
+                                        self._rotate_key()
+                                        if attempt == retry_count - 1:
+                                            raise NetworkException("Ошибка индекса при обработке ответа от OpenRouter API")
+                                        continue
+                                    
+                                    return result
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Ошибка декодирования JSON: {e}")
+                                    logger.error(f"Ответ: {response_text}")
+                                    # Ротация ключа при ошибке декодирования
                                     self._rotate_key()
                                     if attempt == retry_count - 1:
-                                        raise NetworkException("Ошибка индекса при обработке ответа от OpenRouter API")
+                                        raise NetworkException(f"Ошибка декодирования JSON: {str(e)}")
                                     continue
-                                
-                                return result
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Ошибка декодирования JSON: {e}")
-                                logger.error(f"Ответ: {await response.text()}")
-                                # Ротация ключа при ошибке декодирования
-                                self._rotate_key()
-                                if attempt == retry_count - 1:
-                                    raise NetworkException(f"Ошибка декодирования JSON: {str(e)}")
-                                continue
-                        
-                        # Обработка ошибок API
-                        error_text = await response.text()
-                        logger.error(f"OpenRouter API ошибка: {response.status}, {error_text}")
-                        
-                        if response.status == 401 or response.status == 403:
-                            # Проблема с API ключом - ротация ключа
-                            self._rotate_key()
-                        elif response.status == 404:
-                            # Проблема с моделью - ротация модели
-                            self._rotate_model()
-                        elif response.status == 429:
-                            # Rate limit - ротация ключа и увеличенная пауза
-                            self._rotate_key()
-                            await asyncio.sleep(2)  # Увеличенная пауза при rate limit
-                        else:
-                            # Другие ошибки
-                            logger.error(f"Неизвестная ошибка API: {response.status}")
-                            self._rotate_key()  # Пробуем другой ключ для любой ошибки
                             
-                        # Если это последняя попытка, выбрасываем исключение
+                            # Обработка ошибок API
+                            logger.error(f"OpenRouter API ошибка: {response.status}, {response_text}")
+                            
+                            error_data = {}
+                            try:
+                                error_data = json.loads(response_text)
+                            except:
+                                pass
+                                
+                            error_message = error_data.get('error', {}).get('message', 'Неизвестная ошибка')
+                            logger.error(f"Сообщение об ошибке: {error_message}")
+                            
+                            if response.status == 401 or response.status == 403:
+                                # Проблема с API ключом - ротация ключа
+                                logger.error(f"Ошибка авторизации для ключа: {api_key[:10]}...")
+                                self._rotate_key()
+                            elif response.status == 404:
+                                # Проблема с моделью - ротация модели
+                                logger.error(f"Модель не найдена: {model}")
+                                self._rotate_model()
+                            elif response.status == 429:
+                                # Rate limit - ротация ключа и увеличенная пауза
+                                logger.error(f"Превышен лимит запросов для ключа: {api_key[:10]}...")
+                                self._rotate_key()
+                                await asyncio.sleep(2)  # Увеличенная пауза при rate limit
+                            else:
+                                # Другие ошибки
+                                logger.error(f"Неизвестная ошибка API: {response.status}")
+                                self._rotate_key()  # Пробуем другой ключ для любой ошибки
+                                
+                            # Если это последняя попытка, выбрасываем исключение
+                            if attempt == retry_count - 1:
+                                raise NetworkException(f"Ошибка OpenRouter API: {response.status}, {error_message}")
+                    except aiohttp.ClientConnectionError as e:
+                        logger.error(f"Ошибка соединения с API: {e}")
                         if attempt == retry_count - 1:
-                            raise NetworkException(f"Ошибка OpenRouter API: {response.status}, {error_text}")
+                            raise NetworkException(f"Ошибка соединения: {str(e)}")
+                        await asyncio.sleep(1)
+                        continue
                             
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.error(f"Ошибка сети при запросе к OpenRouter: {e}")

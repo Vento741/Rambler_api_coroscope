@@ -10,7 +10,7 @@ from datetime import date, datetime
 class MoonCalendarClient:
     """Клиент для тестирования API"""
     
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
+    def __init__(self, base_url: str = "http://81.177.6.93:8080"):
         self.base_url = base_url
     
     async def test_health(self):
@@ -45,6 +45,40 @@ class MoonCalendarClient:
                 print(f"Status: {response.status}")
                 print(f"Response: {json.dumps(data, indent=2, ensure_ascii=False)}")
                 return response.status == 200
+    
+    async def test_astro_bot_free(self):
+        """Тест API astro_bot для бесплатных пользователей"""
+        print("🔮 Testing astro_bot API for free users...")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.base_url}/api/v1/astro_bot/moon_day?user_type=free") as response:
+                data = await response.json()
+                print(f"Status: {response.status}")
+                print(f"Success: {data.get('success', False)}")
+                print(f"Cached: {data.get('cached', False)}")
+                print(f"Model: {data.get('model', 'Not specified')}")
+                print(f"Error: {data.get('error', 'No error')}")
+                if data.get('data'):
+                    print(f"Data length: {len(data.get('data', ''))}")
+                    print(f"Data preview: {data.get('data', '')[:100]}...")
+                return response.status == 200 and data.get('success', False)
+    
+    async def test_astro_bot_premium(self):
+        """Тест API astro_bot для премиум пользователей"""
+        print("💎 Testing astro_bot API for premium users...")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{self.base_url}/api/v1/astro_bot/moon_day?user_type=premium") as response:
+                data = await response.json()
+                print(f"Status: {response.status}")
+                print(f"Success: {data.get('success', False)}")
+                print(f"Cached: {data.get('cached', False)}")
+                print(f"Model: {data.get('model', 'Not specified')}")
+                print(f"Error: {data.get('error', 'No error')}")
+                if data.get('data'):
+                    print(f"Data length: {len(data.get('data', ''))}")
+                    print(f"Data preview: {data.get('data', '')[:100]}...")
+                return response.status == 200 and data.get('success', False)
     
     async def test_cache_performance(self):
         """Тест кэширования"""
@@ -117,6 +151,8 @@ class MoonCalendarClient:
             ("Health Check", self.test_health()),
             ("Current Calendar", self.test_current_calendar()),
             ("Specific Date", self.test_specific_date()),
+            ("Astro Bot API (Free)", self.test_astro_bot_free()),
+            ("Astro Bot API (Premium)", self.test_astro_bot_premium()),
             ("Cache Performance", self.test_cache_performance()),
             ("Concurrent Requests", self.test_concurrent_requests()),
         ]
