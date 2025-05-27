@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e  # Прерывать выполнение при ошибках
+echo "Обновление сервиса Rambler API"
 
 # Логирование
 LOGFILE="/var/log/rambler_api/update.log"
