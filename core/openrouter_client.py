@@ -78,7 +78,7 @@ class OpenRouterClient:
         max_tokens: int = 500,
         temperature: float = 0.7,
         model: Optional[str] = None,
-        retry_count: int = 1
+        retry_count: int = 3
     ) -> Dict[str, Any]:
         """
         Выполнение запроса к API OpenRouter
@@ -102,23 +102,6 @@ class OpenRouterClient:
         
         # Логируем информацию о запросе
         logger.info(f"Запрос к OpenRouter API: модель={model}, max_tokens={max_tokens}")
-        logger.info(f"Используемый API ключ: {self._get_current_key()[:10]}...")
-        
-        # Проверяем статус API ключа
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
-                auth_url = "https://openrouter.ai/api/v1/auth/key"
-                async with session.get(
-                    auth_url,
-                    headers={"Authorization": f"Bearer {self._get_current_key()}"}
-                ) as response:
-                    if response.status == 200:
-                        key_info = await response.json()
-                        logger.info(f"Статус API ключа: {key_info}")
-                    else:
-                        logger.error(f"Ошибка при проверке API ключа: {response.status}, {await response.text()}")
-        except Exception as e:
-            logger.error(f"Ошибка при проверке статуса API ключа: {e}")
         
         for attempt in range(retry_count):
             try:
@@ -126,25 +109,20 @@ class OpenRouterClient:
                     headers = self._prepare_headers()
                     logger.debug(f"Заголовки запроса: {headers}")
                     
-                    # Логируем URL и payload для диагностики
+                    # Логируем URL для диагностики
                     logger.debug(f"URL запроса: {self.api_url}")
-                    logger.debug(f"Payload запроса: {json.dumps(payload)}")
                     
                     async with session.post(
                         self.api_url,
                         headers=headers,
                         json=payload
                     ) as response:
-                        response_text = await response.text()
-                        logger.info(f"Статус ответа: {response.status}")
-                        logger.debug(f"Тело ответа: {response_text}")
-                        
                         if response.status == 200:
                             try:
-                                result = json.loads(response_text)
+                                result = await response.json()
                                 # Проверка структуры ответа
                                 if not result or 'choices' not in result:
-                                    logger.warning(f"Получен некорректный ответ от OpenRouter: {response_text}")
+                                    logger.warning(f"Получен некорректный ответ от OpenRouter: {await response.text()}")
                                     # Ротация ключа при некорректном ответе
                                     self._rotate_key()
                                     if attempt == retry_count - 1:
@@ -181,7 +159,7 @@ class OpenRouterClient:
                                 return result
                             except json.JSONDecodeError as e:
                                 logger.error(f"Ошибка декодирования JSON: {e}")
-                                logger.error(f"Ответ: {response_text}")
+                                logger.error(f"Ответ: {await response.text()}")
                                 # Ротация ключа при ошибке декодирования
                                 self._rotate_key()
                                 if attempt == retry_count - 1:
@@ -189,25 +167,19 @@ class OpenRouterClient:
                                 continue
                         
                         # Обработка ошибок API
-                        logger.error(f"OpenRouter API ошибка: {response.status}, {response_text}")
+                        error_text = await response.text()
+                        logger.error(f"OpenRouter API ошибка: {response.status}, {error_text}")
                         
                         if response.status == 401 or response.status == 403:
                             # Проблема с API ключом - ротация ключа
-                            logger.error(f"Ошибка авторизации с ключом: {self._get_current_key()[:10]}...")
                             self._rotate_key()
                         elif response.status == 404:
                             # Проблема с моделью - ротация модели
-                            logger.error(f"Модель не найдена: {model}")
                             self._rotate_model()
                         elif response.status == 429:
                             # Rate limit - ротация ключа и увеличенная пауза
-                            logger.error(f"Превышен лимит запросов с ключом: {self._get_current_key()[:10]}...")
                             self._rotate_key()
                             await asyncio.sleep(2)  # Увеличенная пауза при rate limit
-                        elif response.status == 402:
-                            # Payment Required - недостаточно средств
-                            logger.error(f"Недостаточно средств на ключе: {self._get_current_key()[:10]}...")
-                            self._rotate_key()
                         else:
                             # Другие ошибки
                             logger.error(f"Неизвестная ошибка API: {response.status}")
@@ -215,7 +187,7 @@ class OpenRouterClient:
                             
                         # Если это последняя попытка, выбрасываем исключение
                         if attempt == retry_count - 1:
-                            raise NetworkException(f"Ошибка OpenRouter API: {response.status}, {response_text}")
+                            raise NetworkException(f"Ошибка OpenRouter API: {response.status}, {error_text}")
                             
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.error(f"Ошибка сети при запросе к OpenRouter: {e}")
@@ -232,56 +204,54 @@ class OpenRouterClient:
     
     def extract_response_text(self, response: Dict[str, Any]) -> str:
         """
-        Извлечение текста из ответа API
+        Извлечение текста ответа из ответа API
         
         :param response: Ответ API
-        :return: Извлеченный текст
+        :return: Текст ответа
         """
         try:
-            # Проверяем наличие необходимых ключей
+            # Подробное логирование структуры ответа для диагностики
+            logger.debug(f"Получен ответ от OpenRouter: {json.dumps(response, ensure_ascii=False)}")
+            
+            # Проверяем наличие ключевых полей перед обращением к ним
             if not response:
-                logger.error("Пустой ответ от API")
+                logger.error("Получен пустой ответ от OpenRouter API")
                 return ""
-            
+                
             if 'choices' not in response:
-                logger.error(f"В ответе отсутствует ключ 'choices': {response}")
+                logger.error("В ответе отсутствует поле 'choices'")
+                return ""
+                
+            if not response['choices']:
+                logger.error("Список 'choices' в ответе пуст")
                 return ""
             
-            choices = response['choices']
-            if not choices or not isinstance(choices, list):
-                logger.error(f"Пустой или некорректный список 'choices': {choices}")
-                return ""
-            
-            # Безопасное получение первого элемента
+            # Безопасное получение первого элемента списка choices
             try:
-                first_choice = choices[0]
+                first_choice = response['choices'][0]
             except IndexError:
-                logger.error(f"Индекс за пределами списка 'choices': {choices}")
+                logger.error("Ошибка при доступе к первому элементу списка 'choices' (list index out of range)")
                 return ""
             
-            # Проверяем наличие message в первом элементе
+            # Проверяем наличие message и content в первом выборе
             if 'message' not in first_choice:
-                logger.error(f"В первом элементе 'choices' отсутствует ключ 'message': {first_choice}")
+                logger.error("В ответе отсутствует поле 'message'")
                 return ""
-            
-            message = first_choice['message']
-            
-            # Проверяем наличие content в message
-            if 'content' not in message:
-                logger.error(f"В 'message' отсутствует ключ 'content': {message}")
+                
+            if 'content' not in first_choice['message']:
+                logger.error("В ответе отсутствует поле 'content'")
                 return ""
+                
+            content = first_choice['message']['content']
+            logger.debug(f"Извлечен текст ответа длиной {len(content)} символов")
+            return content
             
-            content = message['content']
-            
-            # Проверяем, что content - строка
-            if not isinstance(content, str):
-                logger.error(f"'content' не является строкой: {content}")
-                return ""
-            
-            return content.strip()
-            
-        except Exception as e:
-            logger.error(f"Ошибка при извлечении текста из ответа: {e}")
+        except IndexError as e:
+            logger.error(f"Ошибка индекса при извлечении текста ответа: {e}")
+            logger.error(f"Структура ответа: {response}")
+            return ""
+        except (KeyError, AttributeError, TypeError) as e:
+            logger.error(f"Ошибка при извлечении текста ответа: {e}")
             logger.error(f"Структура ответа: {response}")
             return ""
     
@@ -310,52 +280,8 @@ class OpenRouterClient:
         logger.info(f"Отправка запроса к OpenRouter с моделью: {self._get_current_model()}")
         logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
         
-        # Проверяем доступность модели
-        try:
-            # Базовый URL без /chat/completions
-            base_url = self.api_url.rsplit('/', 2)[0]
-            models_url = f"{base_url}/models"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    models_url,
-                    headers={"Authorization": f"Bearer {self._get_current_key()}"}
-                ) as response:
-                    if response.status == 200:
-                        models_data = await response.json()
-                        available_models = [model.get('id') for model in models_data.get('data', [])]
-                        
-                        current_model = self._get_current_model()
-                        if current_model not in available_models:
-                            logger.error(f"Модель {current_model} недоступна в OpenRouter!")
-                            logger.info(f"Доступные модели: {available_models}")
-                            
-                            # Если модель недоступна, пробуем найти альтернативу
-                            if 'google/gemini' in current_model:
-                                for model in available_models:
-                                    if 'google/gemini' in model:
-                                        logger.info(f"Найдена альтернативная модель: {model}")
-                                        self.models = [model]
-                                        break
-                            elif 'anthropic/claude' in current_model:
-                                for model in available_models:
-                                    if 'anthropic/claude' in model:
-                                        logger.info(f"Найдена альтернативная модель: {model}")
-                                        self.models = [model]
-                                        break
-                            elif 'meta-llama' in current_model:
-                                for model in available_models:
-                                    if 'meta-llama' in model:
-                                        logger.info(f"Найдена альтернативная модель: {model}")
-                                        self.models = [model]
-                                        break
-                    else:
-                        logger.error(f"Ошибка при получении списка моделей: {response.status}")
-        except Exception as e:
-            logger.error(f"Ошибка при проверке доступности модели: {e}")
-        
         # Счетчик попыток для всех моделей и ключей
-        total_attempts = 1  # Уменьшаем до 1 попытки
+        total_attempts = len(self.api_keys) * len(self.models) * 2
         
         for attempt in range(total_attempts):
             try:

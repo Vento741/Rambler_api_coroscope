@@ -24,4 +24,3 @@ class ApiResponse(BaseModel):
     data: Optional[Union[CalendarDayResponse, str]] = None
     error: Optional[str] = None
     cached: bool = False
-    fallback: bool = False

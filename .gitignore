@@ -69,3 +69,8 @@ docs/
 .cursor
 .rules/
 rules/
+
+# Папки и файлы для разработки
+tests/
+test_api_openrouter.py
+

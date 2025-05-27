@@ -7,7 +7,6 @@ from datetime import date
 from typing import Dict, Any, Optional
 
 from fastapi import HTTPException
-import aiohttp
 
 from core.openrouter_client import OpenRouterClient
 from core.cache import CacheManager
@@ -169,13 +168,10 @@ class MoonCalendarOpenRouterService:
         :param user_type: Тип пользователя (free/premium)
         :return: Ответ API
         """
-        logger.info(f"Запрос лунного календаря для даты {calendar_date} и типа пользователя {user_type}")
-        
         try:
             # Проверяем наличие кэшированного ответа
             cached_response = await self._get_cached_response(calendar_date, user_type)
             if cached_response:
-                logger.info(f"Возвращаем кэшированный ответ для {calendar_date} и типа {user_type}")
                 return ApiResponse(
                     success=True,
                     data=cached_response,
@@ -183,22 +179,7 @@ class MoonCalendarOpenRouterService:
                 )
             
             # Получаем данные календаря
-            try:
-                calendar_data = await self._get_calendar_data(calendar_date)
-                if not calendar_data:
-                    logger.error(f"Не удалось получить данные календаря для {calendar_date}")
-                    return ApiResponse(
-                        success=False,
-                        error="Не удалось получить данные лунного календаря",
-                        cached=False
-                    )
-            except Exception as e:
-                logger.error(f"Ошибка при получении данных календаря: {e}")
-                return ApiResponse(
-                    success=False,
-                    error=f"Ошибка при получении данных лунного календаря: {str(e)}",
-                    cached=False
-                )
+            calendar_data = await self._get_calendar_data(calendar_date)
             
             # Получаем конфигурацию промпта
             prompt_config = self._get_prompt_config(user_type)
@@ -209,38 +190,6 @@ class MoonCalendarOpenRouterService:
             # Логируем информацию о запросе
             logger.info(f"Подготовлен запрос к OpenRouter для {calendar_date} и типа {user_type}")
             logger.debug(f"Сообщение пользователя: {user_message[:100]}...")
-            
-            # Проверка доступности моделей
-            try:
-                # Простой запрос для проверки доступности API
-                async with aiohttp.ClientSession() as session:
-                    models_url = "https://openrouter.ai/api/v1/models"
-                    async with session.get(
-                        models_url,
-                        headers={"Authorization": f"Bearer {self.openrouter_client._get_current_key()}"},
-                        timeout=30
-                    ) as response:
-                        if response.status == 200:
-                            models_data = await response.json()
-                            available_models = [model.get('id') for model in models_data.get('data', [])]
-                            logger.info(f"Доступные модели: {available_models}")
-                            
-                            # Проверяем, доступна ли наша модель
-                            current_model = self.openrouter_client._get_current_model()
-                            
-                            if current_model not in available_models:
-                                logger.error(f"Модель {current_model} недоступна! Доступные модели: {available_models}")
-                                # Пробуем найти альтернативную модель
-                                if 'google/gemini' in current_model:
-                                    for model in available_models:
-                                        if 'google/gemini' in model:
-                                            logger.info(f"Найдена альтернативная модель: {model}")
-                                            self.openrouter_client.models = [model]
-                                            break
-                        else:
-                            logger.error(f"Ошибка при получении списка моделей: {response.status}, {await response.text()}")
-            except Exception as e:
-                logger.error(f"Ошибка при проверке доступности моделей: {e}")
             
             # Генерируем ответ через OpenRouter
             try:
@@ -254,18 +203,9 @@ class MoonCalendarOpenRouterService:
                 # Проверка на пустой ответ
                 if not response or not response.strip():
                     logger.error("Получен пустой ответ от OpenRouter")
-                    
-                    # Пробуем получить данные без обработки через OpenRouter
-                    fallback_response = self._generate_fallback_response(calendar_data, user_type)
-                    
-                    # Кэшируем ответ
-                    await self._cache_response(calendar_date, user_type, fallback_response)
-                    
                     return ApiResponse(
-                        success=True,
-                        data=fallback_response,
-                        cached=False,
-                        fallback=True
+                        success=False,
+                        error="Получен пустой ответ от сервиса генерации текста"
                     )
                 
                 # Кэшируем ответ
@@ -278,76 +218,21 @@ class MoonCalendarOpenRouterService:
                 )
                 
             except HTTPException as e:
-                logger.error(f"HTTP ошибка при генерации ответа: {e}")
-                
-                # Пробуем получить данные без обработки через OpenRouter
-                fallback_response = self._generate_fallback_response(calendar_data, user_type)
-                
+                logger.error(f"Ошибка HTTP при запросе к OpenRouter: {e.detail}")
                 return ApiResponse(
-                    success=True,
-                    data=fallback_response,
-                    cached=False,
-                    fallback=True
+                    success=False,
+                    error=f"Ошибка при генерации ответа: {e.detail}"
                 )
-                
-            except Exception as e:
-                logger.error(f"Ошибка при генерации ответа: {e}")
-                
-                # Пробуем получить данные без обработки через OpenRouter
-                fallback_response = self._generate_fallback_response(calendar_data, user_type)
-                
-                return ApiResponse(
-                    success=True,
-                    data=fallback_response,
-                    cached=False,
-                    fallback=True
-                )
-                
-        except Exception as e:
-            logger.error(f"Общая ошибка при обработке запроса лунного календаря: {e}")
+            
+        except HTTPException as e:
+            logger.error(f"Ошибка HTTP: {e.detail}")
             return ApiResponse(
                 success=False,
-                error=f"Ошибка при обработке запроса: {str(e)}",
-                cached=False
+                error=f"Ошибка сервера: {e.detail}"
             )
-    
-    def _generate_fallback_response(self, calendar_data: Dict[str, Any], user_type: str) -> str:
-        """
-        Генерация резервного ответа при ошибке OpenRouter
-        
-        :param calendar_data: Данные лунного календаря
-        :param user_type: Тип пользователя
-        :return: Резервный ответ
-        """
-        logger.info(f"Генерация резервного ответа для типа пользователя {user_type}")
-        
-        fallback_response = (
-            f"Дата: {calendar_data['date']}\n"
-            f"Фаза луны: {calendar_data['moon_phase']}\n\n"
-        )
-        
-        if calendar_data['moon_days']:
-            if user_type == "free":
-                # Для бесплатных пользователей - только первый лунный день
-                moon_day = calendar_data['moon_days'][0]
-                fallback_response += (
-                    f"Лунный день: {moon_day.get('name', '')}\n"
-                    f"Период: {moon_day.get('start', '')} - {moon_day.get('end', '')}\n"
-                    f"Информация: {moon_day.get('info', '')}\n\n"
-                )
-            else:
-                # Для премиум пользователей - все лунные дни
-                fallback_response += "Лунные дни:\n\n"
-                for moon_day in calendar_data['moon_days']:
-                    fallback_response += (
-                        f"{moon_day.get('name', '')}\n"
-                        f"Период: {moon_day.get('start', '')} - {moon_day.get('end', '')}\n"
-                        f"Информация: {moon_day.get('info', '')}\n\n"
-                    )
-        
-        if calendar_data['recommendations']:
-            fallback_response += "Рекомендации:\n\n"
-            for title, text in calendar_data['recommendations'].items():
-                fallback_response += f"{title}: {text}\n\n"
-        
-        return fallback_response 
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при обработке запроса: {e}", exc_info=True)
+            return ApiResponse(
+                success=False,
+                error=f"Внутренняя ошибка сервера: {str(e)}"
+            ) 
