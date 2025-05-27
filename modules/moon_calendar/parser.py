@@ -190,15 +190,26 @@ class MoonCalendarParser:
         soup = await self._fetch_page(calendar_date)
         
         moon_phase = self._parse_moon_phase(soup)
-        moon_days = self._parse_moon_days(soup, calendar_date.year)
-        recommendations = self._parse_recommendations(soup)
+        moon_days_data = self._parse_moon_days(soup, calendar_date.year)
+        recommendations_data = self._parse_recommendations(soup)
 
-        raw_text_content = " ".join(soup.stripped_strings) # или более специфичный селектор
+        # Формируем единый текстовый блок для передачи в PuzzleBot
+        full_text_content = f"Дата: {calendar_date.isoformat()}\n"
+        full_text_content += f"Фаза луны: {moon_phase}\n\n"
+        
+        if moon_days_data:
+            full_text_content += "Лунные дни:\n"
+            for day in moon_days_data:
+                full_text_content += f"- {day.get('name', '')}: ({day.get('start', '')} - {day.get('end', '')})\nИнфо: {day.get('info', '')}\n"
+            full_text_content += "\n"
+
+        if recommendations_data:
+            full_text_content += "Рекомендации:\n"
+            for title, text in recommendations_data.items():
+                full_text_content += f"- {title}: {text}\n"
         
         return {
-            "date": calendar_date.isoformat(),
-            "moon_phase": moon_phase,
-            "moon_days": moon_days,
-            "recommendations": recommendations,
-            "raw_text": raw_text_content # <--- Новое поле
+            "success": True, # Важно для PuzzleBot, если он ожидает это поле
+            "full_moon_text_data": full_text_content, # Единственное текстовое поле с данными
+            "date_api": calendar_date.isoformat() # Можно оставить дату отдельно, если PuzzleBot ее использует
         }
