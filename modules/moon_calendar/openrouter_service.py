@@ -37,6 +37,12 @@ class MoonCalendarOpenRouterService:
         self.parser = parser
         self.openrouter_client = openrouter_client
         self.prompts_config = prompts_config
+        
+        # Сопоставление типов пользователей и моделей
+        self.user_type_models = {
+            "free": ["google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free"],
+            "premium": ["google/gemini-2.0-flash-001", "qwen/qwen2.5-vl-72b-instruct:free"]
+        }
     
     async def _get_calendar_data(self, calendar_date: date) -> Dict[str, Any]:
         """
@@ -123,6 +129,15 @@ class MoonCalendarOpenRouterService:
         # используем конфигурацию для бесплатных пользователей
         return self.prompts_config.get(user_type, self.prompts_config["free"])
     
+    def _get_models_for_user_type(self, user_type: str) -> list:
+        """
+        Получение списка моделей для типа пользователя
+        
+        :param user_type: Тип пользователя (free/premium)
+        :return: Список моделей
+        """
+        return self.user_type_models.get(user_type, self.user_type_models["free"])
+    
     async def _get_cached_response(self, calendar_date: date, user_type: str) -> Optional[str]:
         """
         Получение кэшированного ответа OpenRouter
@@ -191,42 +206,60 @@ class MoonCalendarOpenRouterService:
             # Подготавливаем сообщение пользователя
             user_message = self._prepare_user_message(calendar_data, user_type)
             
+            # Получаем список моделей для типа пользователя
+            models = self._get_models_for_user_type(user_type)
+            
             # Логируем информацию о запросе
             logger.info(f"Подготовлен запрос к OpenRouter для {calendar_date} и типа {user_type}")
+            logger.info(f"Доступные модели: {models}")
             logger.info(f"Сообщение пользователя: {user_message[:100]}...")
             
-            # Генерируем ответ через OpenRouter
-            try:
-                response = await self.openrouter_client.generate_text(
-                    system_message=prompt_config["system_message"],
-                    user_message=user_message,
-                    max_tokens=prompt_config["max_tokens"],
-                    temperature=prompt_config["temperature"]
-                )
-                
-                # Проверка на пустой ответ
-                if not response or not response.strip():
-                    logger.error("Получен пустой ответ от OpenRouter")
-                    return ApiResponse(
-                        success=False,
-                        error="Получен пустой ответ от сервиса генерации текста"
+            # Пробуем каждую модель по порядку
+            last_error = None
+            for model in models:
+                try:
+                    logger.info(f"Пробуем модель: {model}")
+                    
+                    # Генерируем ответ через OpenRouter с указанной моделью
+                    response = await self.openrouter_client.generate_text(
+                        system_message=prompt_config["system_message"],
+                        user_message=user_message,
+                        max_tokens=prompt_config["max_tokens"],
+                        temperature=prompt_config["temperature"],
+                        model=model
                     )
-                
-                # Кэшируем ответ
-                await self._cache_response(calendar_date, user_type, response)
-                
-                return ApiResponse(
-                    success=True,
-                    data=response,
-                    cached=False
-                )
-                
-            except HTTPException as e:
-                logger.error(f"Ошибка HTTP при запросе к OpenRouter: {e.detail}")
-                return ApiResponse(
-                    success=False,
-                    error=f"Ошибка при генерации ответа: {e.detail}"
-                )
+                    
+                    # Проверка на пустой ответ
+                    if not response or not response.strip():
+                        logger.warning(f"Получен пустой ответ от модели {model}, пробуем следующую")
+                        continue
+                    
+                    # Ответ успешно получен
+                    logger.info(f"Успешно получен ответ от модели {model}")
+                    
+                    # Кэшируем ответ
+                    await self._cache_response(calendar_date, user_type, response)
+                    
+                    return ApiResponse(
+                        success=True,
+                        data=response,
+                        cached=False,
+                        model=model
+                    )
+                    
+                except Exception as e:
+                    last_error = e
+                    logger.error(f"Ошибка при использовании модели {model}: {e}")
+                    continue
+            
+            # Если ни одна модель не сработала, возвращаем ошибку
+            error_message = f"Не удалось получить ответ ни от одной модели: {str(last_error)}" if last_error else "Все модели вернули пустой ответ"
+            logger.error(error_message)
+            
+            return ApiResponse(
+                success=False,
+                error=error_message
+            )
             
         except HTTPException as e:
             logger.error(f"Ошибка HTTP: {e.detail}")

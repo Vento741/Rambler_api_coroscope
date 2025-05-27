@@ -68,20 +68,48 @@ PROXY_PREFIX = os.getenv("PROXY_PREFIX", "")
 OPENROUTER_API_URL = os.getenv("URL_LINK_OPENROUTER", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_API_KEYS = [
     key for key in [
-        os.getenv("OPENROUTER_API_KEY_1", ""),
-        os.getenv("OPENROUTER_API_KEY_2", ""),
-        os.getenv("OPENROUTER_API_KEY_3", "")
+        os.getenv("API_for_Gemini_2.0_Flash_Exp_free", ""),
+        os.getenv("Qwen2.5_VL_72B_Instruct_free", ""),
+        os.getenv("API_for_Gemini_2.0_Flash", ""),
+        os.getenv("DeepSeek_Prover_V2_free", "")
     ] if key
 ]
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-exp:free",
     "google/gemini-2.0-flash-001",
-    "deepseek/deepseek-v3-base:free",
-    "deepseek/deepseek-chat-v3-0324:free"
-    
+    "google/gemini-2.0-flash-exp:free",
+    "qwen/qwen2.5-vl-72b-instruct:free",
+    "deepseek/deepseek-prover-v2:free"
 ]
+
+# Сопоставление моделей и их API ключей
+OPENROUTER_MODEL_API_KEYS = {
+    "google/gemini-2.0-flash-001": os.getenv("API_for_Gemini_2.0_Flash", ""),
+    "google/gemini-2.0-flash-exp:free": os.getenv("API_for_Gemini_2.0_Flash_Exp_free", ""),
+    "qwen/qwen2.5-vl-72b-instruct:free": os.getenv("Qwen2.5_VL_72B_Instruct_free", ""),
+    "deepseek/deepseek-prover-v2:free": os.getenv("DeepSeek_Prover_V2_free", "")
+}
+
+# Конфигурация специфичных запросов для моделей
+OPENROUTER_MODEL_CONFIGS = {
+    "deepseek/deepseek-prover-v2:free": {
+        "request_type": "standard",
+        "timeout": 10
+    },
+    "google/gemini-2.0-flash-001": {
+        "request_type": "openai",
+        "timeout": 10
+    },
+    "google/gemini-2.0-flash-exp:free": {
+        "request_type": "openai",
+        "timeout": 10
+    },
+    "qwen/qwen2.5-vl-72b-instruct:free": {
+        "request_type": "openai",
+        "timeout": 10
+    }
+}
 
 # Настройки промптов для разных типов пользователей
 OPENROUTER_PROMPTS = {

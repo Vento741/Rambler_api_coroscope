@@ -23,6 +23,8 @@ class OpenRouterClient:
         api_url: str,
         api_keys: List[str],
         models: List[str],
+        model_configs: Optional[Dict[str, Dict[str, Any]]] = None,
+        model_api_keys: Optional[Dict[str, str]] = None,
         timeout: int = 30
     ):
         """
@@ -31,12 +33,16 @@ class OpenRouterClient:
         :param api_url: URL API OpenRouter
         :param api_keys: Список API ключей
         :param models: Список моделей
+        :param model_configs: Конфигурации для моделей (опционально)
+        :param model_api_keys: Соответствие моделей и их API ключей (опционально)
         :param timeout: Таймаут запроса в секундах
         """
         self.api_url = api_url
         self.api_keys = api_keys
         self.models = models
         self.timeout = timeout
+        self.model_configs = model_configs or {}
+        self.model_api_keys = model_api_keys or {}
         
         self.current_key_index = 0
         self.current_model_index = 0
@@ -50,6 +56,22 @@ class OpenRouterClient:
     def _get_current_model(self) -> str:
         """Получение текущей модели"""
         return self.models[self.current_model_index]
+    
+    def _get_key_for_model(self, model: str) -> str:
+        """Получение API ключа для конкретной модели"""
+        # Если есть соответствие модели и ключа, используем его
+        if model in self.model_api_keys and self.model_api_keys[model]:
+            return self.model_api_keys[model]
+        # Иначе используем текущий ключ
+        return self._get_current_key()
+    
+    def _get_model_config(self, model: str) -> Dict[str, Any]:
+        """Получение конфигурации для модели"""
+        # Если есть конфигурация для модели, используем её
+        if model in self.model_configs:
+            return self.model_configs[model]
+        # Иначе возвращаем конфигурацию по умолчанию
+        return {"request_type": "standard", "timeout": self.timeout}
     
     def _rotate_key(self) -> str:
         """Ротация API ключа"""
@@ -65,11 +87,43 @@ class OpenRouterClient:
         self.current_key_index = 0
         return self._get_current_model()
     
-    def _prepare_headers(self) -> Dict[str, str]:
+    def _prepare_headers(self, api_key: str) -> Dict[str, str]:
         """Подготовка заголовков запроса"""
         return {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._get_current_key()}"
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://puzzlebot.top",  # Добавлено для требований OpenRouter
+            "X-Title": "PuzzleBot"  # Добавлено для требований OpenRouter
+        }
+    
+    def _prepare_standard_payload(
+        self, 
+        model: str, 
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """Подготовка стандартного payload для запроса"""
+        return {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+    
+    def _prepare_openai_payload(
+        self, 
+        model: str, 
+        messages: List[Dict[str, str]],
+        max_tokens: int,
+        temperature: float
+    ) -> Dict[str, Any]:
+        """Подготовка payload для OpenAI-совместимых моделей"""
+        return {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }
     
     async def make_request(
@@ -93,24 +147,37 @@ class OpenRouterClient:
         if not model:
             model = self._get_current_model()
         
-        payload = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature
-        }
+        # Получаем конфигурацию модели
+        model_config = self._get_model_config(model)
+        request_type = model_config.get("request_type", "standard")
+        model_timeout = model_config.get("timeout", self.timeout)
+        
+        # Получаем API ключ для модели
+        api_key = self._get_key_for_model(model)
+        
+        # Подготавливаем payload в зависимости от типа запроса
+        if request_type == "openai":
+            payload = self._prepare_openai_payload(model, messages, max_tokens, temperature)
+        else:
+            payload = self._prepare_standard_payload(model, messages, max_tokens, temperature)
         
         # Логируем информацию о запросе
-        logger.info(f"Запрос к OpenRouter API: модель={model}, max_tokens={max_tokens}")
+        logger.info(f"Запрос к OpenRouter API: модель={model}, max_tokens={max_tokens}, request_type={request_type}")
         
         for attempt in range(retry_count):
             try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
-                    headers = self._prepare_headers()
+                # Увеличиваем таймаут до минимум 3 секунд
+                actual_timeout = max(model_timeout, 3)
+                
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=actual_timeout)) as session:
+                    headers = self._prepare_headers(api_key)
                     logger.debug(f"Заголовки запроса: {headers}")
                     
                     # Логируем URL для диагностики
                     logger.debug(f"URL запроса: {self.api_url}")
+                    
+                    # Логируем payload для отладки
+                    logger.debug(f"Payload запроса: {json.dumps(payload, ensure_ascii=False)}")
                     
                     async with session.post(
                         self.api_url,
@@ -260,7 +327,8 @@ class OpenRouterClient:
         system_message: str,
         user_message: str,
         max_tokens: int = 500,
-        temperature: float = 0.7
+        temperature: float = 0.7,
+        model: Optional[str] = None
     ) -> str:
         """
         Генерация текста с помощью OpenRouter API
@@ -269,15 +337,20 @@ class OpenRouterClient:
         :param user_message: Сообщение пользователя
         :param max_tokens: Максимальное количество токенов в ответе
         :param temperature: Температура генерации
+        :param model: Конкретная модель для использования (опционально)
         :return: Сгенерированный текст
         """
+        # Если модель не указана, используем текущую
+        if not model:
+            model = self._get_current_model()
+            
         messages = [
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message}
         ]
         
         # Логируем запрос для диагностики
-        logger.info(f"Отправка запроса к OpenRouter с моделью: {self._get_current_model()}")
+        logger.info(f"Отправка запроса к OpenRouter с моделью: {model}")
         logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
         
         # Счетчик попыток для всех моделей и ключей
@@ -288,7 +361,8 @@ class OpenRouterClient:
                 response = await self.make_request(
                     messages=messages,
                     max_tokens=max_tokens,
-                    temperature=temperature
+                    temperature=temperature,
+                    model=model
                 )
                 
                 text = self.extract_response_text(response)
@@ -299,7 +373,7 @@ class OpenRouterClient:
                     if attempt % 2 == 0:
                         self._rotate_key()
                     else:
-                        self._rotate_model()
+                        model = self._rotate_model()
                     continue
                 
                 return text
@@ -318,7 +392,7 @@ class OpenRouterClient:
                 if attempt % 2 == 0:
                     self._rotate_key()
                 else:
-                    self._rotate_model()
+                    model = self._rotate_model()
                 
                 # Пауза перед повторной попыткой
                 await asyncio.sleep(1)
