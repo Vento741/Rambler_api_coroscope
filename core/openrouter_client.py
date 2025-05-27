@@ -100,16 +100,71 @@ class OpenRouterClient:
             "temperature": temperature
         }
         
+        # Логируем информацию о запросе
+        logger.info(f"Запрос к OpenRouter API: модель={model}, max_tokens={max_tokens}")
+        
         for attempt in range(retry_count):
             try:
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout)) as session:
+                    headers = self._prepare_headers()
+                    logger.debug(f"Заголовки запроса: {headers}")
+                    
+                    # Логируем URL для диагностики
+                    logger.debug(f"URL запроса: {self.api_url}")
+                    
                     async with session.post(
                         self.api_url,
-                        headers=self._prepare_headers(),
+                        headers=headers,
                         json=payload
                     ) as response:
                         if response.status == 200:
-                            return await response.json()
+                            try:
+                                result = await response.json()
+                                # Проверка структуры ответа
+                                if not result or 'choices' not in result:
+                                    logger.warning(f"Получен некорректный ответ от OpenRouter: {await response.text()}")
+                                    # Ротация ключа при некорректном ответе
+                                    self._rotate_key()
+                                    if attempt == retry_count - 1:
+                                        raise NetworkException("Некорректный ответ от OpenRouter API")
+                                    continue
+                                    
+                                # Проверка наличия списка choices и его непустоты
+                                if not result.get('choices'):
+                                    logger.warning("Получен ответ с пустым списком choices")
+                                    # Ротация ключа при пустом списке choices
+                                    self._rotate_key()
+                                    if attempt == retry_count - 1:
+                                        raise NetworkException("Получен ответ с пустым списком choices")
+                                    continue
+                                
+                                # Проверка первого элемента списка choices
+                                try:
+                                    first_choice = result['choices'][0]
+                                    if 'message' not in first_choice or 'content' not in first_choice.get('message', {}):
+                                        logger.warning("Некорректная структура первого элемента choices")
+                                        # Ротация ключа при некорректной структуре
+                                        self._rotate_key()
+                                        if attempt == retry_count - 1:
+                                            raise NetworkException("Некорректная структура ответа от OpenRouter API")
+                                        continue
+                                except IndexError:
+                                    logger.warning("Ошибка при доступе к первому элементу списка choices")
+                                    # Ротация ключа при ошибке индекса
+                                    self._rotate_key()
+                                    if attempt == retry_count - 1:
+                                        raise NetworkException("Ошибка индекса при обработке ответа от OpenRouter API")
+                                    continue
+                                
+                                return result
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Ошибка декодирования JSON: {e}")
+                                logger.error(f"Ответ: {await response.text()}")
+                                # Ротация ключа при ошибке декодирования
+                                self._rotate_key()
+                                if attempt == retry_count - 1:
+                                    raise NetworkException(f"Ошибка декодирования JSON: {str(e)}")
+                                continue
                         
                         # Обработка ошибок API
                         error_text = await response.text()
@@ -121,9 +176,14 @@ class OpenRouterClient:
                         elif response.status == 404:
                             # Проблема с моделью - ротация модели
                             self._rotate_model()
+                        elif response.status == 429:
+                            # Rate limit - ротация ключа и увеличенная пауза
+                            self._rotate_key()
+                            await asyncio.sleep(2)  # Увеличенная пауза при rate limit
                         else:
                             # Другие ошибки
                             logger.error(f"Неизвестная ошибка API: {response.status}")
+                            self._rotate_key()  # Пробуем другой ключ для любой ошибки
                             
                         # Если это последняя попытка, выбрасываем исключение
                         if attempt == retry_count - 1:
@@ -150,9 +210,49 @@ class OpenRouterClient:
         :return: Текст ответа
         """
         try:
-            return response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        except (IndexError, KeyError, AttributeError) as e:
+            # Подробное логирование структуры ответа для диагностики
+            logger.debug(f"Получен ответ от OpenRouter: {json.dumps(response, ensure_ascii=False)}")
+            
+            # Проверяем наличие ключевых полей перед обращением к ним
+            if not response:
+                logger.error("Получен пустой ответ от OpenRouter API")
+                return ""
+                
+            if 'choices' not in response:
+                logger.error("В ответе отсутствует поле 'choices'")
+                return ""
+                
+            if not response['choices']:
+                logger.error("Список 'choices' в ответе пуст")
+                return ""
+            
+            # Безопасное получение первого элемента списка choices
+            try:
+                first_choice = response['choices'][0]
+            except IndexError:
+                logger.error("Ошибка при доступе к первому элементу списка 'choices' (list index out of range)")
+                return ""
+            
+            # Проверяем наличие message и content в первом выборе
+            if 'message' not in first_choice:
+                logger.error("В ответе отсутствует поле 'message'")
+                return ""
+                
+            if 'content' not in first_choice['message']:
+                logger.error("В ответе отсутствует поле 'content'")
+                return ""
+                
+            content = first_choice['message']['content']
+            logger.debug(f"Извлечен текст ответа длиной {len(content)} символов")
+            return content
+            
+        except IndexError as e:
+            logger.error(f"Ошибка индекса при извлечении текста ответа: {e}")
+            logger.error(f"Структура ответа: {response}")
+            return ""
+        except (KeyError, AttributeError, TypeError) as e:
             logger.error(f"Ошибка при извлечении текста ответа: {e}")
+            logger.error(f"Структура ответа: {response}")
             return ""
     
     async def generate_text(
@@ -176,17 +276,55 @@ class OpenRouterClient:
             {"role": "user", "content": user_message}
         ]
         
-        try:
-            response = await self.make_request(
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
-            
-            return self.extract_response_text(response)
-        except Exception as e:
-            logger.error(f"Ошибка при генерации текста: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Ошибка при генерации текста: {str(e)}"
-            ) 
+        # Логируем запрос для диагностики
+        logger.info(f"Отправка запроса к OpenRouter с моделью: {self._get_current_model()}")
+        logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
+        
+        # Счетчик попыток для всех моделей и ключей
+        total_attempts = len(self.api_keys) * len(self.models) * 2
+        
+        for attempt in range(total_attempts):
+            try:
+                response = await self.make_request(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+                
+                text = self.extract_response_text(response)
+                
+                # Если текст пустой, пробуем другую модель/ключ
+                if not text.strip():
+                    logger.warning("Получен пустой ответ от OpenRouter, пробуем другую модель/ключ")
+                    if attempt % 2 == 0:
+                        self._rotate_key()
+                    else:
+                        self._rotate_model()
+                    continue
+                
+                return text
+                
+            except Exception as e:
+                logger.error(f"Ошибка при генерации текста (попытка {attempt+1}/{total_attempts}): {e}")
+                
+                # Если это последняя попытка, выбрасываем исключение
+                if attempt == total_attempts - 1:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Не удалось сгенерировать текст после {total_attempts} попыток: {str(e)}"
+                    )
+                
+                # Чередуем ротацию ключей и моделей
+                if attempt % 2 == 0:
+                    self._rotate_key()
+                else:
+                    self._rotate_model()
+                
+                # Пауза перед повторной попыткой
+                await asyncio.sleep(1)
+        
+        # Этот код не должен выполниться, но на всякий случай
+        raise HTTPException(
+            status_code=500,
+            detail="Не удалось сгенерировать текст: превышено максимальное количество попыток"
+        ) 

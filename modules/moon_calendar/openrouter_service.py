@@ -187,27 +187,51 @@ class MoonCalendarOpenRouterService:
             # Подготавливаем сообщение пользователя
             user_message = self._prepare_user_message(calendar_data, user_type)
             
+            # Логируем информацию о запросе
+            logger.info(f"Подготовлен запрос к OpenRouter для {calendar_date} и типа {user_type}")
+            logger.debug(f"Сообщение пользователя: {user_message[:100]}...")
+            
             # Генерируем ответ через OpenRouter
-            response = await self.openrouter_client.generate_text(
-                system_message=prompt_config["system_message"],
-                user_message=user_message,
-                max_tokens=prompt_config["max_tokens"],
-                temperature=prompt_config["temperature"]
-            )
+            try:
+                response = await self.openrouter_client.generate_text(
+                    system_message=prompt_config["system_message"],
+                    user_message=user_message,
+                    max_tokens=prompt_config["max_tokens"],
+                    temperature=prompt_config["temperature"]
+                )
+                
+                # Проверка на пустой ответ
+                if not response or not response.strip():
+                    logger.error("Получен пустой ответ от OpenRouter")
+                    return ApiResponse(
+                        success=False,
+                        error="Получен пустой ответ от сервиса генерации текста"
+                    )
+                
+                # Кэшируем ответ
+                await self._cache_response(calendar_date, user_type, response)
+                
+                return ApiResponse(
+                    success=True,
+                    data=response,
+                    cached=False
+                )
+                
+            except HTTPException as e:
+                logger.error(f"Ошибка HTTP при запросе к OpenRouter: {e.detail}")
+                return ApiResponse(
+                    success=False,
+                    error=f"Ошибка при генерации ответа: {e.detail}"
+                )
             
-            # Кэшируем ответ
-            await self._cache_response(calendar_date, user_type, response)
-            
+        except HTTPException as e:
+            logger.error(f"Ошибка HTTP: {e.detail}")
             return ApiResponse(
-                success=True,
-                data=response,
-                cached=False
+                success=False,
+                error=f"Ошибка сервера: {e.detail}"
             )
-            
-        except HTTPException:
-            raise
         except Exception as e:
-            logger.error(f"Ошибка при обработке запроса: {e}")
+            logger.error(f"Неожиданная ошибка при обработке запроса: {e}", exc_info=True)
             return ApiResponse(
                 success=False,
                 error=f"Внутренняя ошибка сервера: {str(e)}"

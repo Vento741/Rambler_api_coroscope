@@ -76,7 +76,7 @@ OPENROUTER_API_KEYS = [
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
-    "anthropic/claude-3-haiku-20240307",
+    "google/gemini-2.0-flash-001",
     "anthropic/claude-3-sonnet-20240229",
     "meta-llama/llama-3-8b-instruct",
     "google/gemma-7b-it"
