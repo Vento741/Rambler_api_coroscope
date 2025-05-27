@@ -48,7 +48,7 @@ PARSER_TIMEOUT = int(os.getenv("PARSER_TIMEOUT", "10"))
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "100"))
 
 # Настройки логирования
-LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_DIR = Path("logs")
 
 # Создаем директорию для логов, если она не существует
