@@ -36,15 +36,18 @@ def main():
     """Основная функция"""
     parser = argparse.ArgumentParser(description="Проверка работоспособности сервера")
     parser.add_argument("--host", default="81.177.6.93", help="Хост для проверки")
-    parser.add_argument("--port", type=int, default=8080, help="Порт для проверки")
+    parser.add_argument("--nginx-port", type=int, default=8080, help="Порт nginx для проверки")
+    parser.add_argument("--app-port", type=int, default=8081, help="Порт приложения для проверки")
     parser.add_argument("--local", action="store_true", help="Проверять локальный сервер (127.0.0.1)")
+    parser.add_argument("--direct", action="store_true", help="Проверять приложение напрямую, минуя nginx")
     args = parser.parse_args()
     
     host = "127.0.0.1" if args.local else args.host
-    port = args.port
+    port = args.app_port if args.direct else args.nginx_port
     base_url = f"http://{host}:{port}"
     
     print(f"🔍 Проверка сервера на {base_url}\n")
+    print(f"Режим: {'Прямое подключение к приложению' if args.direct else 'Через nginx'}")
     
     # Проверка health эндпоинта
     health_data = check_endpoint(f"{base_url}/health", "Health Check")
@@ -75,6 +78,13 @@ def main():
             data_length = len(astro_free_data.get('data', ''))
             print(f"  Длина данных: {data_length} символов")
             print(f"  Превью: {astro_free_data.get('data', '')[:100]}...")
+    
+    # Проверка обоих подключений, если не указан флаг
+    if not args.direct and not args.local:
+        print(f"\n🔍 Дополнительно проверяем прямое подключение к приложению на http://{host}:{args.app_port}\n")
+        direct_health = check_endpoint(f"http://{host}:{args.app_port}/health", "Health Check (прямое)")
+        if direct_health:
+            print(f"  Статус: {direct_health.get('status', 'не указан')}")
     
     print("\n✨ Проверка завершена!")
 

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 def run_dev_server(host=None, port=None):
     """Запуск сервера разработки"""
     host = host or config.HOST
-    port = port or 8080  # Используем 8080 по умолчанию вместо config.PORT
+    port = port or 8081  # Используем 8081 по умолчанию вместо config.PORT
     
     logger.info(f"Starting development server на {host}:{port}")
     uvicorn.run(
@@ -38,7 +38,7 @@ def run_dev_server(host=None, port=None):
 def run_prod_server(host=None, port=None):
     """Запуск продакшн сервера"""
     host = host or config.HOST
-    port = port or 8080  # Используем 8080 по умолчанию вместо config.PORT
+    port = port or 8081  # Используем 8081 по умолчанию вместо config.PORT
     
     logger.info(f"Starting production server на {host}:{port}")
     uvicorn.run(

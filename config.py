@@ -12,18 +12,24 @@ APP_DESCRIPTION = "Асинхронный API сервис для парсинг
 
 # Настройки сервера
 HOST = os.getenv("HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8000"))
+PORT = int(os.getenv("PORT", "8081"))
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
 WORKERS = int(os.getenv("WORKERS", "4"))
 
 # Настройки CORS
 CORS_ORIGINS: List[str] = [
     "http://localhost",
-    "http://localhost:8000",
+    "http://localhost:8080",
+    "http://localhost:8081",
     "http://127.0.0.1",
-    "http://127.0.0.1:8000",
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:8081",
     "http://81.177.6.93",
+    "http://81.177.6.93:8080",
+    "http://81.177.6.93:8081",
     "https://81.177.6.93",
+    "https://81.177.6.93:8080",
+    "https://81.177.6.93:8081",
     "http://puzzlebot.top",
     "https://puzzlebot.top",
     "https://help.puzzlebot.top",

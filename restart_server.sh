@@ -48,14 +48,14 @@ echo -e "${GREEN}Код успешно обновлен${NC}"
 
 # Запуск приложения в фоне
 echo -e "\n${YELLOW}[5/5] Запуск сервера...${NC}"
-nohup python run.py > server.log 2>&1 &
+nohup python run.py --port 8081 > server.log 2>&1 &
 echo $! > server.pid
 echo -e "${GREEN}Сервер запущен с PID $(cat server.pid)${NC}"
 
 # Проверка работоспособности API
 echo -e "\n${YELLOW}Проверка работоспособности API...${NC}"
 sleep 5 # Даем серверу время на запуск
-curl -s http://127.0.0.1:8080/health > /dev/null
+curl -s http://127.0.0.1:8081/health > /dev/null
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}API работает!${NC}"
     

@@ -13,6 +13,16 @@ class MoonCalendarClient:
     def __init__(self, base_url: str = "http://81.177.6.93:8080"):
         self.base_url = base_url
     
+    @classmethod
+    def create_direct_client(cls):
+        """Создает клиент для прямого подключения к приложению"""
+        return cls("http://127.0.0.1:8081")
+    
+    @classmethod
+    def create_nginx_client(cls):
+        """Создает клиент для подключения через nginx"""
+        return cls("http://81.177.6.93:8080")
+    
     async def test_health(self):
         """Тест health check"""
         print("🏥 Testing health endpoint...")
