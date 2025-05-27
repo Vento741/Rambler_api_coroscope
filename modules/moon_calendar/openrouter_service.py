@@ -189,7 +189,7 @@ class MoonCalendarOpenRouterService:
             
             # Логируем информацию о запросе
             logger.info(f"Подготовлен запрос к OpenRouter для {calendar_date} и типа {user_type}")
-            logger.debug(f"Сообщение пользователя: {user_message[:100]}...")
+            logger.info(f"Сообщение пользователя: {user_message[:100]}...")
             
             # Генерируем ответ через OpenRouter
             try:

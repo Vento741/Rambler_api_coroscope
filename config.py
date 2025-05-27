@@ -48,7 +48,7 @@ PARSER_TIMEOUT = int(os.getenv("PARSER_TIMEOUT", "10"))
 MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "100"))
 
 # Настройки логирования
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
 LOG_DIR = Path("logs")
 
 # Создаем директорию для логов, если она не существует
@@ -77,9 +77,10 @@ OPENROUTER_API_KEYS = [
 # Модели OpenRouter
 OPENROUTER_MODELS = [
     "google/gemini-2.0-flash-001",
-    "anthropic/claude-3-sonnet-20240229",
-    "meta-llama/llama-3-8b-instruct",
-    "google/gemma-7b-it"
+    "google/gemini-2.0-flash-exp:free"
+    "deepseek/deepseek-v3-base:free",
+    "deepseek/deepseek-chat-v3-0324:free"
+    
 ]
 
 # Настройки промптов для разных типов пользователей
