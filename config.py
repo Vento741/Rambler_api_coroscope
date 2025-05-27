@@ -65,21 +65,22 @@ SSL_KEY_PATH: Optional[str] = os.getenv("SSL_KEY_PATH")
 PROXY_PREFIX = os.getenv("PROXY_PREFIX", "")
 
 # Настройки OpenRouter API
-OPENROUTER_API_URL = os.getenv("URL_LINK_OPENROUTER", "https://openrouter.ai/api/v1/chat/completions")
+OPENROUTER_API_URL = os.getenv("URL_LINK_OPENROUTER", "https://openrouter.ai/api/v1") + "/chat/completions"
 OPENROUTER_API_KEYS = [
-    key for key in [
-        os.getenv("OPENROUTER_API_KEY_1", ""),
-        os.getenv("OPENROUTER_API_KEY_2", ""),
-        os.getenv("OPENROUTER_API_KEY_3", "")
-    ] if key
+    # key for key in [
+    #     os.getenv("OPENROUTER_API_KEY_1", ""),
+    #     os.getenv("OPENROUTER_API_KEY_2", ""),
+    #     os.getenv("OPENROUTER_API_KEY_3", "")
+    # ] if key
+    os.getenv("OPENROUTER_API_KEY_1", "")
 ]
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-001",
-    "anthropic/claude-3-sonnet-20240229",
-    "meta-llama/llama-3-8b-instruct",
-    "google/gemma-7b-it"
+    "google/gemini-2.0-flash-001"
+    # "anthropic/claude-3-sonnet-20240229",
+    # "meta-llama/llama-3-8b-instruct",
+    # "google/gemma-7b-it"
 ]
 
 # Настройки промптов для разных типов пользователей

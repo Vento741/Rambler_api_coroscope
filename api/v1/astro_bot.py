@@ -21,7 +21,8 @@ parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
 openrouter_client = OpenRouterClient(
     api_url=config.OPENROUTER_API_URL,
     api_keys=config.OPENROUTER_API_KEYS,
-    models=config.OPENROUTER_MODELS
+    models=config.OPENROUTER_MODELS,
+    timeout=60  # Увеличиваем таймаут до 60 секунд
 )
 
 # Инициализация сервиса
