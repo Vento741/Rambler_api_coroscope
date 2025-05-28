@@ -209,8 +209,8 @@ class OpenRouterClient:
                 actual_timeout = max(model_timeout, 60)  # Минимум 60 секунд для всех запросов
                 
                 if attempt > 0: # Пауза перед повторными попытками
-                    # Используем фиксированную задержку вместо экспоненциальной
-                    backoff_time = 1  # Фиксированная задержка 1 секунда между попытками
+                    # Используем минимальную фиксированную задержку
+                    backoff_time = 0.3  # Фиксированная задержка 0.5 секунды между попытками
                     logger.info(f"Пауза перед повторной попыткой: {backoff_time} сек.")
                     await asyncio.sleep(backoff_time)
                 
@@ -277,7 +277,7 @@ class OpenRouterClient:
                                 else: # Для платных моделей сначала ротируем ключ
                                     self._rotate_key()
                                 # Фиксированная задержка при 429 вместо экспоненциальной
-                                current_backoff_429 = 1  # Фиксированная задержка 1 секунда при 429
+                                current_backoff_429 = 0.3  # Минимальная задержка 0.5 секунды при 429
                                 logger.info(f"Дополнительная задержка из-за Rate limit (429): {current_backoff_429} сек.")
                                 await asyncio.sleep(current_backoff_429)
                             else: # Другие ошибки сервера

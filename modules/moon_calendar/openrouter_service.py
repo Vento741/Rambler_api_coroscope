@@ -156,8 +156,10 @@ class MoonCalendarOpenRouterService:
             responses = cached_data["openrouter_responses"]
             if user_type in responses:
                 logger.info(f"Использую кэшированный ответ OpenRouter для {calendar_date} и типа {user_type}")
+                logger.info(f"Размер кэшированного ответа: {len(responses[user_type])} символов")
                 return responses[user_type]
         
+        logger.info(f"Кэшированный ответ для {calendar_date} и типа {user_type} не найден")
         return None
     
     async def _cache_response(self, calendar_date: date, user_type: str, response: str) -> None:
@@ -186,6 +188,7 @@ class MoonCalendarOpenRouterService:
         await self.cache_manager.set(calendar_date, cached_data)
         
         logger.info(f"Кэширован ответ OpenRouter для {calendar_date} и типа {user_type}")
+        logger.info(f"Размер сохраненного ответа: {len(response)} символов")
     
     async def get_moon_calendar_response(self, calendar_date: date, user_type: str) -> ApiResponse:
         """
@@ -199,10 +202,12 @@ class MoonCalendarOpenRouterService:
             # Проверяем наличие кэшированного ответа
             cached_response = await self._get_cached_response(calendar_date, user_type)
             if cached_response:
+                logger.info(f"Возвращаю кэшированный ответ для {calendar_date} и типа {user_type}")
                 return ApiResponse(
                     success=True,
                     data=cached_response,
-                    cached=True
+                    cached=True,
+                    model="cached"  # Указываем, что ответ из кэша
                 )
             
             # Получаем данные календаря
@@ -248,19 +253,12 @@ class MoonCalendarOpenRouterService:
                     # Кэшируем ответ
                     await self._cache_response(calendar_date, user_type, response)
                     
-                    # Создаем объект календарного дня из ответа
-                    try:
-                        # Вместо парсинга ответа, просто возвращаем его как строку
-                        # Это временное решение, пока не будет реализована корректная обработка ответа
-                        return ApiResponse(
-                            success=True,
-                            data=response,
-                            model=model
-                        )
-                    except Exception as parse_error:
-                        logger.warning(f"Не удалось распарсить ответ от модели {model}: {parse_error}")
-                        last_error = parse_error
-                        continue
+                    # Возвращаем ответ как строку, без попыток парсинга
+                    return ApiResponse(
+                        success=True,
+                        data=response,
+                        model=model
+                    )
 
                 except Exception as e:
                     last_error = e
