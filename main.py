@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 import config
 from core.cache import CacheManager
-from api.v1 import health, moon_calendar, tarot, numerology, astro_bot
+from api.v1 import health, moon_calendar, tarot, numerology, astro_bot, horoscope
 from api.middleware import log_request_middleware
 from modules.moon_calendar import MoonCalendarParser
 from modules.moon_calendar.tasks import MoonCalendarTasks
@@ -137,10 +137,11 @@ async def log_requests(request: Request, call_next):
 
 # Регистрируем роутеры
 app.include_router(health.router)
-app.include_router(moon_calendar.router)
-app.include_router(tarot.router)
+app.include_router(moon_calendar.router, tags=["moon_calendar"])
+app.include_router(tarot.router, tags=["tarot"])
 app.include_router(numerology.router)
-app.include_router(astro_bot.router)
+app.include_router(astro_bot.router, tags=["astro_bot"])
+app.include_router(horoscope.router, tags=["horoscope"])
 
 # ================= ENTRY POINT =================
 

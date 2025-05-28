@@ -1,14 +1,15 @@
 """
-Модуль таро
+Модуль для работы с картами Таро
 """
-from .models import TarotCard, TarotReading, ApiResponse
-from .parser import TarotParser
-from .service import TarotService
+from .models import ApiResponse, TarotCard, TarotSpread, TarotReading, TarotReadingRequest, TarotCardPosition
+from .openrouter_service import TarotOpenRouterService
 
 __all__ = [
     'TarotCard',
     'TarotReading',
     'ApiResponse',
-    'TarotParser',
-    'TarotService'
+    'TarotSpread',
+    'TarotReadingRequest',
+    'TarotCardPosition',
+    'TarotOpenRouterService'
 ] 
