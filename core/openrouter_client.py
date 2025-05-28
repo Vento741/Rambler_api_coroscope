@@ -38,8 +38,8 @@ class OpenRouterClient:
         :param timeout: Таймаут запроса в секундах
         """
         self.api_url = api_url
-        self.api_keys = api_keys
-        self.models = models
+        self.api_keys = api_keys  # Присваиваем напрямую
+        self.models = models      # Присваиваем напрямую
         self.timeout = timeout
         self.model_configs = model_configs or {}
         self.model_api_keys = model_api_keys or {}
@@ -47,7 +47,18 @@ class OpenRouterClient:
         self.current_key_index = 0
         self.current_model_index = 0
         
-        logger.info(f"OpenRouter клиент инициализирован с {len(api_keys)} ключами и {len(models)} моделями")
+        if not self.api_keys:
+            logger.critical("ALARM! OpenRouterClient получил ПУСТОЙ список api_keys. Клиент не сможет работать!")
+            raise ValueError("Список api_keys не может быть пустым для OpenRouterClient.")
+        else:
+            logger.info(f"OpenRouterClient инициализирован. URL: {self.api_url}, Количество API ключей: {len(self.api_keys)}, Первый ключ (начало): {self.api_keys[0][:10]}...")
+            
+        if not self.models:
+            logger.warning("OpenRouterClient получил ПУСТОЙ список models. Некоторые функции могут не работать корректно.")
+            # Можно не возбуждать ошибку, если клиент может работать без списка моделей по умолчанию,
+            # но это плохая практика для текущей реализации _get_current_model()
+        else:
+            logger.info(f"OpenRouterClient: Количество моделей по умолчанию: {len(self.models)}, Первая модель: {self.models[0]}")
     
     def _get_current_key(self) -> str:
         """Получение текущего API ключа"""
