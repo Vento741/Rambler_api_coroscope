@@ -1,63 +1,119 @@
 """
-Модели данных для модуля карт Таро
+Модели данных для работы с картами Таро
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 
 class TarotCard(BaseModel):
-    """Модель для карты Таро"""
-    id: int = Field(..., description="Уникальный идентификатор карты")
-    name: str = Field(..., description="Название карты")
-    suit: Optional[str] = Field(None, description="Масть карты (для Младших Арканов)")
-    arcana: str = Field(..., description="Тип аркана (Старший/Младший)")
-    image_url: str = Field(..., description="URL изображения карты")
-    keywords_upright: List[str] = Field(..., description="Ключевые слова для прямого положения")
-    keywords_reversed: List[str] = Field(..., description="Ключевые слова для перевернутого положения")
-    description: str = Field(..., description="Общее описание карты")
-    meaning_upright: str = Field(..., description="Значение карты в прямом положении")
-    meaning_reversed: str = Field(..., description="Значение карты в перевернутом положении")
-
-
-class TarotSpread(BaseModel):
-    """Модель для расклада карт Таро"""
-    id: int = Field(..., description="Уникальный идентификатор расклада")
-    name: str = Field(..., description="Название расклада")
-    description: str = Field(..., description="Описание расклада")
-    positions: List[Dict[str, str]] = Field(..., description="Позиции карт в раскладе и их значения")
-    card_count: int = Field(..., description="Количество карт в раскладе")
+    """Модель данных для карты Таро"""
+    id: int
+    name: str
+    arcana: str  # Старший или Младший Аркан
+    suit: Optional[str] = None  # Масть (для Младших Арканов)
+    image_url: str
+    keywords_upright: List[str]
+    keywords_reversed: List[str]
+    description: str
+    meaning_upright: str
+    meaning_reversed: str
 
 
 class TarotCardPosition(BaseModel):
-    """Модель для позиции карты в раскладе"""
-    position: int = Field(..., description="Номер позиции")
-    name: str = Field(..., description="Название позиции")
-    description: str = Field(..., description="Описание значения позиции")
-    card: TarotCard = Field(..., description="Карта в данной позиции")
-    is_reversed: bool = Field(False, description="Флаг перевернутой карты")
+    """Модель данных для позиции карты в раскладе"""
+    position: int
+    name: str
+    description: str
+
+
+class TarotSpread(BaseModel):
+    """Модель данных для расклада Таро"""
+    id: int
+    name: str
+    description: str
+    positions: List[TarotCardPosition]
+    card_count: int
 
 
 class TarotReadingRequest(BaseModel):
-    """Модель для запроса гадания на Таро"""
-    spread_id: int = Field(..., description="ID выбранного расклада")
-    question: Optional[str] = Field(None, description="Вопрос для гадания")
-    user_type: str = Field("free", description="Тип пользователя (free/premium)")
+    """Модель запроса на получение гадания"""
+    spread_id: int
+    question: Optional[str] = None
+    user_type: str = "free"  # "free" или "premium"
 
 
 class TarotReading(BaseModel):
-    """Модель для результата гадания на Таро"""
-    spread: TarotSpread = Field(..., description="Информация о раскладе")
-    cards: List[TarotCardPosition] = Field(..., description="Карты в раскладе")
-    general_interpretation: str = Field(..., description="Общая интерпретация расклада")
-    detailed_interpretation: Optional[str] = Field(None, description="Детальная интерпретация (для premium)")
-    advice: str = Field(..., description="Совет на основе расклада")
-    created_at: str = Field(..., description="Дата и время создания расклада")
+    """Модель данных для результата гадания"""
+    spread: TarotSpread
+    cards: List[Dict[str, Any]]
+    interpretation: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    question: Optional[str] = None
 
 
 class ApiResponse(BaseModel):
-    """Модель для API-ответа"""
-    success: bool = Field(..., description="Успешность запроса")
-    data: Optional[Any] = Field(None, description="Данные ответа")
-    error: Optional[str] = Field(None, description="Сообщение об ошибке")
-    cached: bool = Field(False, description="Флаг использования кэша")
-    model: Optional[str] = Field(None, description="Использованная модель ИИ") 
+    """Общая модель ответа API"""
+    success: bool
+    data: Optional[Union[str, Dict[str, Any], List[Dict[str, Any]]]] = None
+    error: Optional[str] = None
+    model: Optional[str] = None
+    cached: bool = False
+
+
+class PuzzleBotResponse(BaseModel):
+    """Модель ответа, оптимизированная для PuzzleBot"""
+    success: bool = True
+    api_result_text: str  # Единственная переменная, которую будет использовать PuzzleBot
+    html_cards: Optional[str] = None  # HTML-представление карт
+    card_urls: Optional[str] = None  # URL изображений карт через запятую
+    positions: Optional[str] = None  # Названия позиций через запятую
+    timestamp: Optional[str] = None
+    spread_name: Optional[str] = None
+    error: Optional[str] = None
+
+    @classmethod
+    def from_reading(cls, reading_data: Dict[str, Any]) -> "PuzzleBotResponse":
+        """Создает ответ для PuzzleBot из результата гадания"""
+        # Формируем текстовое представление для чатбота
+        text_result = f"🔮 {reading_data['spread']['name']} 🔮\n\n"
+        text_result += f"Вопрос: {reading_data.get('question', 'Общее гадание')}\n\n"
+        text_result += "Выпавшие карты:\n"
+        
+        for card in reading_data['cards']:
+            text_result += f"• {card['position_name']}: {card['card_name']} {'(перевернутая)' if card['is_reversed'] else ''}\n"
+        
+        text_result += "\n🌟 Интерпретация 🌟\n\n"
+        text_result += reading_data['interpretation']
+        
+        # Создаем HTML-строку для визуализации карт
+        html_cards = ""
+        for card in reading_data['cards']:
+            html_cards += f'<div class="tarot-card">'
+            html_cards += f'<img src="{card["card_image_url"]}" alt="{card["card_name"]}" />'
+            html_cards += f'<div class="position">{card["position_name"]}</div>'
+            html_cards += f'<div class="card-name">{card["card_name"]} {"(перевернутая)" if card["is_reversed"] else ""}</div>'
+            html_cards += f'</div>'
+        
+        # Добавляем строки с URLs картинок и позициями
+        cards_urls = [card["card_image_url"] for card in reading_data['cards']]
+        positions = [card["position_name"] for card in reading_data['cards']]
+        
+        return cls(
+            success=True,
+            api_result_text=text_result,
+            html_cards=html_cards,
+            card_urls=",".join(cards_urls),
+            positions=",".join(positions),
+            timestamp=datetime.now().isoformat(),
+            spread_name=reading_data['spread']['name']
+        )
+    
+    @classmethod
+    def error_response(cls, error_message: str) -> "PuzzleBotResponse":
+        """Создает ответ с ошибкой для PuzzleBot"""
+        return cls(
+            success=False,
+            api_result_text=f"Ошибка: {error_message}",
+            error=error_message
+        ) 

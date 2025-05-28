@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import time
 import os
 from pathlib import Path
+import sys
 
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,7 @@ from api.v1 import health, moon_calendar, tarot, numerology, astro_bot
 from api.middleware import log_request_middleware
 from modules.moon_calendar import MoonCalendarParser
 from modules.moon_calendar.tasks import MoonCalendarTasks
+from api.v1.tarot_puzzlebot import router as tarot_puzzlebot_router
 
 # Создаем директорию для логов, если она не существует
 logs_dir = Path("logs")
@@ -25,11 +27,11 @@ logs_dir.mkdir(exist_ok=True)
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=config.LOG_LEVEL,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("logs/app.log")
+        logging.FileHandler(f"{config.LOG_DIR}/app.log"),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -141,7 +143,7 @@ app.include_router(moon_calendar.router, tags=["moon_calendar"])
 app.include_router(tarot.router, tags=["tarot"])
 app.include_router(numerology.router)
 app.include_router(astro_bot.router, tags=["astro_bot"])
-
+app.include_router(tarot_puzzlebot_router)
 
 # ================= ENTRY POINT =================
 
