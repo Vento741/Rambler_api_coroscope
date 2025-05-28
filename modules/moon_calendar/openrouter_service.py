@@ -40,7 +40,7 @@ class MoonCalendarOpenRouterService:
         
         # Сопоставление типов пользователей и моделей
         self.user_type_models = {
-            "free": ["google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free"],
+            "free": ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free"],
             "premium": ["google/gemini-2.0-flash-001", "qwen/qwen2.5-vl-72b-instruct:free"]
         }
     
@@ -149,11 +149,13 @@ class MoonCalendarOpenRouterService:
         # Генерируем ключ кэша
         cache_key = f"openrouter_response_{calendar_date.isoformat()}_{user_type}"
         
-        # Проверяем кэш
-        cached_response = await self.cache_manager.get(date(1970, 1, 1))  # Используем фиктивную дату
-        if cached_response and cache_key in cached_response:
-            logger.info(f"Использую кэшированный ответ OpenRouter для {calendar_date} и типа {user_type}")
-            return cached_response[cache_key]
+        # Проверяем кэш для конкретной даты календаря
+        cached_data = await self.cache_manager.get(calendar_date)
+        if cached_data and isinstance(cached_data, dict) and "openrouter_responses" in cached_data:
+            responses = cached_data["openrouter_responses"]
+            if user_type in responses:
+                logger.info(f"Использую кэшированный ответ OpenRouter для {calendar_date} и типа {user_type}")
+                return responses[user_type]
         
         return None
     
@@ -165,17 +167,22 @@ class MoonCalendarOpenRouterService:
         :param user_type: Тип пользователя
         :param response: Ответ OpenRouter
         """
-        # Генерируем ключ кэша
-        cache_key = f"openrouter_response_{calendar_date.isoformat()}_{user_type}"
+        # Получаем текущие данные календаря из кэша
+        cached_data = await self.cache_manager.get(calendar_date) or {}
         
-        # Получаем текущие кэшированные ответы
-        cached_responses = await self.cache_manager.get(date(1970, 1, 1)) or {}
+        # Если данные не являются словарем, создаем новый словарь
+        if not isinstance(cached_data, dict):
+            cached_data = {}
+        
+        # Инициализируем структуру ответов, если её нет
+        if "openrouter_responses" not in cached_data:
+            cached_data["openrouter_responses"] = {}
         
         # Добавляем новый ответ
-        cached_responses[cache_key] = response
+        cached_data["openrouter_responses"][user_type] = response
         
         # Сохраняем в кэш
-        await self.cache_manager.set(date(1970, 1, 1), cached_responses)
+        await self.cache_manager.set(calendar_date, cached_data)
         
         logger.info(f"Кэширован ответ OpenRouter для {calendar_date} и типа {user_type}")
     

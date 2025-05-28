@@ -10,7 +10,7 @@ from datetime import date, datetime
 class MoonCalendarClient:
     """Клиент для тестирования API"""
     
-    def __init__(self, base_url: str = "http://81.177.6.93:8080"):
+    def __init__(self, base_url: str = "http://81.177.6.93:8081"):
         self.base_url = base_url
     
     @classmethod
@@ -21,7 +21,7 @@ class MoonCalendarClient:
     @classmethod
     def create_nginx_client(cls):
         """Создает клиент для подключения через nginx"""
-        return cls("http://81.177.6.93:8080")
+        return cls("http://81.177.6.93:8081")
     
     async def test_health(self):
         """Тест health check"""

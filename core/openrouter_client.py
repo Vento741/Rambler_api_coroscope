@@ -119,12 +119,32 @@ class OpenRouterClient:
         temperature: float
     ) -> Dict[str, Any]:
         """Подготовка payload для OpenAI-совместимых моделей"""
-        return {
+        payload = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": temperature
+            "temperature": temperature,
+            "stop": None  # Явно указываем, что маркеры остановки не используются
         }
+        
+        # Специфичная обработка для моделей Gemini
+        if "gemini" in model.lower():
+            # Преобразуем системное сообщение в формат, понятный Gemini
+            formatted_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    # Переводим системное сообщение в пользовательское для Gemini
+                    formatted_messages.append({"role": "user", "content": f"Инструкция: {msg['content']}"})
+                else:
+                    formatted_messages.append(msg)
+            
+            # Обновляем сообщения в payload
+            payload["messages"] = formatted_messages
+            
+            # Добавляем дополнительные параметры для Gemini
+            payload["response_format"] = {"type": "text"}
+        
+        return payload
     
     async def make_request(
         self, 
@@ -171,8 +191,15 @@ class OpenRouterClient:
         
         for attempt in range(retry_count):
             try:
-                # Увеличиваем таймаут до минимум 3 секунд
+                # Увеличиваем таймаут до минимум 5 секунд
                 actual_timeout = max(model_timeout, 5)
+                
+                # Экспоненциальная задержка между попытками (кроме первой)
+                if attempt > 0:
+                    # Рассчитываем задержку с экспоненциальным ростом: 1, 2, 4, 8...
+                    backoff_time = 1 * (2 ** (attempt - 1))
+                    logger.info(f"Повторная попытка {attempt+1}/{retry_count} через {backoff_time} сек.")
+                    await asyncio.sleep(backoff_time)
                 
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=actual_timeout)) as session:
                     headers = self._prepare_headers(api_key)
@@ -265,9 +292,20 @@ class OpenRouterClient:
                                 self._rotate_model()
                             elif response.status == 429:
                                 # Rate limit - ротация ключа и увеличенная пауза
-                                logger.error(f"Превышен лимит запросов для ключа: {api_key[:10]}...")
-                                self._rotate_key()
-                                await asyncio.sleep(2)  # Увеличенная пауза при rate limit
+                                logger.error(f"Превышен лимит запросов для ключа или модели: {api_key[:10]}...")
+                                
+                                # Если это бесплатная модель с ограничением, пробуем сменить модель
+                                if ":free" in model:
+                                    logger.info(f"Бесплатная модель {model} временно недоступна из-за лимитов, меняем модель")
+                                    model = self._rotate_model()
+                                else:
+                                    # Иначе меняем ключ и увеличиваем задержку
+                                    self._rotate_key()
+                                
+                                # Экспоненциальная задержка при rate limit: 5, 10, 20 секунд...
+                                backoff_time = 5 * (2 ** attempt)
+                                logger.info(f"Rate limit backoff: {backoff_time} сек.")
+                                await asyncio.sleep(backoff_time)
                             else:
                                 # Другие ошибки
                                 logger.error(f"Неизвестная ошибка API: {response.status}")

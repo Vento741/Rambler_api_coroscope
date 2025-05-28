@@ -36,7 +36,7 @@ def main():
     """Основная функция"""
     parser = argparse.ArgumentParser(description="Проверка работоспособности сервера")
     parser.add_argument("--host", default="81.177.6.93", help="Хост для проверки")
-    parser.add_argument("--nginx-port", type=int, default=8080, help="Порт nginx для проверки")
+    parser.add_argument("--nginx-port", type=int, default=8081, help="Порт nginx для проверки")
     parser.add_argument("--app-port", type=int, default=8081, help="Порт приложения для проверки")
     parser.add_argument("--local", action="store_true", help="Проверять локальный сервер (127.0.0.1)")
     parser.add_argument("--direct", action="store_true", help="Проверять приложение напрямую, минуя nginx")
