@@ -16,7 +16,7 @@ from modules.tarot.openrouter_service import TarotOpenRouterService
 from modules.tarot.data import get_all_cards, get_card_by_id, get_all_spreads, get_spread_by_id
 from core.cache import CacheManager
 from core.openrouter_client import OpenRouterClient
-import config
+import config 
 
 router = APIRouter(prefix="/api/v1/tarot")
 

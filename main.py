@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 import config
 from core.cache import CacheManager
-from api.v1 import health, moon_calendar, tarot, numerology, astro_bot, horoscope
+from api.v1 import health, moon_calendar, tarot, numerology, astro_bot
 from api.middleware import log_request_middleware
 from modules.moon_calendar import MoonCalendarParser
 from modules.moon_calendar.tasks import MoonCalendarTasks
