@@ -248,24 +248,18 @@ class MoonCalendarOpenRouterService:
                     # Кэшируем ответ
                     await self._cache_response(calendar_date, user_type, response)
                     
-                    # Парсим ответ
-                    parsed_data = self.parser.parse_calendar_day(response)
-                    if parsed_data:
-                        logger.info(f"Ответ успешно распарсен для модели {model}, дата: {calendar_date}")
-                        # Добавляем модель в данные для кэширования и ответа
-                        parsed_data_dict = parsed_data.model_dump()
-                        parsed_data_dict['model_used'] = model
-                        
-                        await self.cache_manager.set_moon_day_data(calendar_date, user_type, parsed_data_dict)
+                    # Создаем объект календарного дня из ответа
+                    try:
+                        # Вместо парсинга ответа, просто возвращаем его как строку
+                        # Это временное решение, пока не будет реализована корректная обработка ответа
                         return ApiResponse(
                             success=True,
-                            data=CalendarDayResponse(**parsed_data_dict),
+                            data=response,
                             model=model
                         )
-                    else:
-                        logger.warning(f"Не удалось распарсить ответ от модели {model} для даты {calendar_date}: {response}")
-                        last_error = Exception(f"Не удалось распарсить ответ от модели {model}") # Обновляем ошибку, если парсинг не удался
-                        # Если парсинг не удался, продолжаем цикл, чтобы попробовать следующую модель
+                    except Exception as parse_error:
+                        logger.warning(f"Не удалось распарсить ответ от модели {model}: {parse_error}")
+                        last_error = parse_error
                         continue
 
                 except Exception as e:

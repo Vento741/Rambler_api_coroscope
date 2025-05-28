@@ -25,7 +25,7 @@ class OpenRouterClient:
         models: List[str],
         model_configs: Optional[Dict[str, Dict[str, Any]]] = None,
         model_api_keys: Optional[Dict[str, str]] = None,
-        timeout: int = 30
+        timeout: int = 60  # Увеличиваем таймаут по умолчанию до 60 секунд
     ):
         """
         Инициализация клиента
@@ -205,10 +205,12 @@ class OpenRouterClient:
                 
                 logger.info(f"Попытка {attempt+1}/{retry_count}: Запрос к OpenRouter API: модель={current_model_for_attempt}, max_tokens={max_tokens}")
 
-                actual_timeout = max(model_timeout, 5)
+                # Используем увеличенный таймаут для всех моделей
+                actual_timeout = max(model_timeout, 60)  # Минимум 60 секунд для всех запросов
                 
                 if attempt > 0: # Пауза перед повторными попытками
-                    backoff_time = 1 * (2 ** (attempt - 1))  # 1, 2, 4...
+                    # Используем фиксированную задержку вместо экспоненциальной
+                    backoff_time = 1  # Фиксированная задержка 1 секунда между попытками
                     logger.info(f"Пауза перед повторной попыткой: {backoff_time} сек.")
                     await asyncio.sleep(backoff_time)
                 
@@ -274,8 +276,8 @@ class OpenRouterClient:
                                     request_type = self._get_model_config(model).get("request_type", "standard")
                                 else: # Для платных моделей сначала ротируем ключ
                                     self._rotate_key()
-                                # Экспоненциальная задержка при 429
-                                current_backoff_429 = 5 * (2 ** attempt) 
+                                # Фиксированная задержка при 429 вместо экспоненциальной
+                                current_backoff_429 = 1  # Фиксированная задержка 1 секунда при 429
                                 logger.info(f"Дополнительная задержка из-за Rate limit (429): {current_backoff_429} сек.")
                                 await asyncio.sleep(current_backoff_429)
                             else: # Другие ошибки сервера
@@ -396,7 +398,7 @@ class OpenRouterClient:
         """
         
         initial_model_param = model # Сохраняем исходный параметр model
-
+        
         messages = [
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message}

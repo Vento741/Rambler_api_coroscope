@@ -105,19 +105,19 @@ OPENROUTER_MODEL_API_KEYS = {
 OPENROUTER_MODEL_CONFIGS = {
     "google/gemini-2.0-flash-001": {
         "request_type": "openai",
-        "timeout": 10
+        "timeout": 60
     },
     "google/gemini-2.0-flash-exp:free": {
         "request_type": "openai",
-        "timeout": 10
+        "timeout": 60
     },
     "deepseek/deepseek-prover-v2:free": {
         "request_type": "standard",
-        "timeout": 10
+        "timeout": 60
     },
     "qwen/qwen2.5-vl-72b-instruct:free": {
         "request_type": "openai",
-        "timeout": 10
+        "timeout": 60
     }
 }
 
