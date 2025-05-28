@@ -1,9 +1,13 @@
 """
-Конфигурация приложения
+Конфигурационный файл приложения
 """
+from dotenv import load_dotenv
 import os
 from typing import List, Optional, Dict
 from pathlib import Path
+
+# Загрузка переменных окружения из .env файла
+load_dotenv()
 
 # Базовые настройки приложения
 APP_NAME = "Rambler API Service"
