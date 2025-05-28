@@ -25,7 +25,6 @@ class MoonCalendarOpenRouterService:
         parser: MoonCalendarParser,
         openrouter_client: OpenRouterClient,
         prompts_config: Dict[str, Dict[str, Any]],
-        user_type_models: Dict[str, List[str]]
     ):
         """
         Инициализация сервиса
@@ -34,7 +33,6 @@ class MoonCalendarOpenRouterService:
         :param parser: Парсер лунного календаря
         :param openrouter_client: Клиент OpenRouter
         :param prompts_config: Конфигурация промптов для разных типов пользователей
-        :param user_type_models: Сопоставление типов пользователей и моделей
         """
         self.cache_manager = cache_manager
         self.parser = parser
