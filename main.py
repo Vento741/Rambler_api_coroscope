@@ -141,7 +141,7 @@ app.include_router(moon_calendar.router, tags=["moon_calendar"])
 app.include_router(tarot.router, tags=["tarot"])
 app.include_router(numerology.router)
 app.include_router(astro_bot.router, tags=["astro_bot"])
-app.include_router(horoscope.router, tags=["horoscope"])
+
 
 # ================= ENTRY POINT =================
 
