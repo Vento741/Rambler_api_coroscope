@@ -26,7 +26,7 @@ def run_dev_server(host=None, port=None):
     host = host or config.HOST
     port = port or 8081  # Используем 8081 по умолчанию вместо config.PORT
     
-    logger.info(f"Starting development server на {host}:{port}")
+    logger.info(f"Запуск сервера в режиме разработки на {host}:{port}")
     uvicorn.run(
         "main:app",
         host=host,
@@ -40,7 +40,7 @@ def run_prod_server(host=None, port=None):
     host = host or config.HOST
     port = port or 8081  # Используем 8081 по умолчанию вместо config.PORT
     
-    logger.info(f"Starting production server на {host}:{port}")
+    logger.info(f"Запуск сервера в режиме продакшена на {host}:{port}")
     uvicorn.run(
         "main:app",
         host=host,
@@ -64,5 +64,5 @@ if __name__ == "__main__":
         else:
             run_dev_server(args.host, args.port)
     except Exception as e:
-        logger.error(f"Error starting server: {e}")
+        logger.error(f"Ошибка при запуске сервера: {e}")
         sys.exit(1)

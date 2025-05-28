@@ -130,7 +130,7 @@ async def log_requests(request: Request, call_next):
         logger.error(f"Request error: {e}")
         return JSONResponse(
             status_code=500,
-            content={"detail": "Internal server error"}
+            content={"detail": "Внутренняя ошибка сервера"}
         )
 
 # ================= ROUTES =================
