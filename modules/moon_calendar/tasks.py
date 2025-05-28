@@ -31,14 +31,30 @@ class MoonCalendarTasks:
         try:
             logger.info("Запуск фоновой задачи обновления кэша лунного календаря")
             
+            # Получаем текущие данные из кеша для сегодня и завтра
+            today_cached = await self.cache_manager.get(today)
+            tomorrow_cached = await self.cache_manager.get(tomorrow)
+            
             # Обновляем кэш для сегодня
             logger.info(f"Обновление кэша для {today}")
             today_data = await self.parser.parse_calendar_day(today)
+            
+            # Сохраняем существующие ответы OpenRouter, если они есть
+            if today_cached and isinstance(today_cached, dict) and "openrouter_responses" in today_cached:
+                today_data["openrouter_responses"] = today_cached["openrouter_responses"]
+                logger.info(f"Сохранены существующие ответы OpenRouter для {today}")
+            
             await self.cache_manager.set(today, today_data)
             
             # Обновляем кэш для завтра
             logger.info(f"Обновление кэша для {tomorrow}")
             tomorrow_data = await self.parser.parse_calendar_day(tomorrow)
+            
+            # Сохраняем существующие ответы OpenRouter, если они есть
+            if tomorrow_cached and isinstance(tomorrow_cached, dict) and "openrouter_responses" in tomorrow_cached:
+                tomorrow_data["openrouter_responses"] = tomorrow_cached["openrouter_responses"]
+                logger.info(f"Сохранены существующие ответы OpenRouter для {tomorrow}")
+            
             await self.cache_manager.set(tomorrow, tomorrow_data)
             
             logger.info("Фоновая задача обновления кэша лунного календаря завершена")

@@ -24,7 +24,7 @@ openrouter_client = OpenRouterClient(
     models=config.OPENROUTER_MODELS,
     model_configs=config.OPENROUTER_MODEL_CONFIGS,
     model_api_keys=config.OPENROUTER_MODEL_API_KEYS,
-    timeout=10  # Увеличенный таймаут для всех запросов
+    timeout=30  # Увеличенный таймаут для всех запросов до 30 секунд
 )
 
 # Инициализация сервиса

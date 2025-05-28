@@ -147,17 +147,19 @@ class MoonCalendarOpenRouterService:
         :param user_type: Тип пользователя
         :return: Кэшированный ответ или None
         """
-        # Генерируем ключ кэша
-        cache_key = f"openrouter_response_{calendar_date.isoformat()}_{user_type}"
-        
         # Проверяем кэш для конкретной даты календаря
         cached_data = await self.cache_manager.get(calendar_date)
-        if cached_data and isinstance(cached_data, dict) and "openrouter_responses" in cached_data:
-            responses = cached_data["openrouter_responses"]
-            if user_type in responses:
-                logger.info(f"Использую кэшированный ответ OpenRouter для {calendar_date} и типа {user_type}")
-                logger.info(f"Размер кэшированного ответа: {len(responses[user_type])} символов")
-                return responses[user_type]
+        
+        # Проверяем наличие структуры кеша и ответа для конкретного типа пользователя
+        if cached_data and isinstance(cached_data, dict):
+            # Проверяем наличие ключа openrouter_responses
+            if "openrouter_responses" in cached_data:
+                responses = cached_data["openrouter_responses"]
+                # Проверяем наличие ответа для конкретного типа пользователя
+                if user_type in responses and responses[user_type]:
+                    logger.info(f"Использую кэшированный ответ OpenRouter для {calendar_date} и типа {user_type}")
+                    logger.info(f"Размер кэшированного ответа: {len(responses[user_type])} символов")
+                    return responses[user_type]
         
         logger.info(f"Кэшированный ответ для {calendar_date} и типа {user_type} не найден")
         return None
@@ -252,6 +254,13 @@ class MoonCalendarOpenRouterService:
                     
                     # Кэшируем ответ
                     await self._cache_response(calendar_date, user_type, response)
+                    
+                    # Проверяем, что ответ действительно сохранен в кеше
+                    verification_response = await self._get_cached_response(calendar_date, user_type)
+                    if verification_response:
+                        logger.info(f"Проверка кеширования: ответ успешно сохранен в кеше для {calendar_date} и типа {user_type}")
+                    else:
+                        logger.warning(f"Проверка кеширования: ответ НЕ сохранен в кеше для {calendar_date} и типа {user_type}")
                     
                     # Возвращаем ответ как строку, без попыток парсинга
                     return ApiResponse(

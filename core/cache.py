@@ -4,6 +4,7 @@
 from datetime import datetime, date
 from typing import Dict, Any, Optional
 import logging
+import copy
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 class CacheManager:
     """Асинхронный менеджер кэша с TTL"""
     
-    def __init__(self, ttl_minutes: int = 30):
+    def __init__(self, ttl_minutes: int = 60):  # Увеличиваем время жизни кеша до 60 минут
         self._cache: Dict[str, Dict] = {}
         self._ttl_minutes = ttl_minutes
         
@@ -32,7 +33,7 @@ class CacheManager:
             cache_entry = self._cache[key]
             if not self._is_expired(cache_entry):
                 logger.info(f"Cache HIT for {date_obj}")
-                return cache_entry['data']
+                return copy.deepcopy(cache_entry['data'])  # Возвращаем копию данных
             else:
                 # Удаляем устаревшие данные
                 del self._cache[key]
@@ -44,10 +45,48 @@ class CacheManager:
     async def set(self, date_obj: date, data: Dict) -> None:
         """Сохранение данных в кэш"""
         key = self._generate_key(date_obj)
-        self._cache[key] = {
-            'data': data,
-            'cached_at': datetime.now().isoformat()
-        }
+        
+        # Проверяем, есть ли уже данные в кеше
+        existing_data = None
+        if key in self._cache and not self._is_expired(self._cache[key]):
+            existing_data = self._cache[key]['data']
+        
+        # Если данные уже есть, обновляем только новые поля, сохраняя существующие
+        if existing_data and isinstance(existing_data, dict) and isinstance(data, dict):
+            # Создаем глубокую копию существующих данных
+            merged_data = copy.deepcopy(existing_data)
+            
+            # Если в новых данных есть openrouter_responses, обрабатываем их отдельно
+            if 'openrouter_responses' in data:
+                if 'openrouter_responses' not in merged_data:
+                    merged_data['openrouter_responses'] = {}
+                
+                # Обновляем или добавляем ответы для каждого типа пользователя
+                for user_type, response in data['openrouter_responses'].items():
+                    merged_data['openrouter_responses'][user_type] = response
+                
+                # Удаляем openrouter_responses из data, чтобы избежать дублирования
+                data_copy = copy.deepcopy(data)
+                del data_copy['openrouter_responses']
+                
+                # Обновляем остальные поля
+                merged_data.update(data_copy)
+            else:
+                # Если нет openrouter_responses, просто обновляем данные
+                merged_data.update(data)
+            
+            # Сохраняем объединенные данные
+            self._cache[key] = {
+                'data': merged_data,
+                'cached_at': datetime.now().isoformat()
+            }
+        else:
+            # Если данных нет или они не словари, просто сохраняем новые данные
+            self._cache[key] = {
+                'data': copy.deepcopy(data),  # Сохраняем копию данных
+                'cached_at': datetime.now().isoformat()
+            }
+        
         logger.info(f"Cache SET for {date_obj}")
     
     async def clear_expired(self) -> None:

@@ -50,8 +50,8 @@ if os.getenv("ADDITIONAL_CORS_ORIGINS"):
     CORS_ORIGINS.extend(os.getenv("ADDITIONAL_CORS_ORIGINS").split(","))
 
 # Настройки кэша
-CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "30"))
-CACHE_CLEANUP_INTERVAL = int(os.getenv("CACHE_CLEANUP_INTERVAL", "300"))
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "120"))
+CACHE_CLEANUP_INTERVAL = int(os.getenv("CACHE_CLEANUP_INTERVAL", "600"))
 
 # Настройки парсера
 PARSER_TIMEOUT = int(os.getenv("PARSER_TIMEOUT", "10"))
@@ -137,7 +137,7 @@ OPENROUTER_PROMPTS = {
 
 # Настройки фоновых задач
 BACKGROUND_TASKS = {
-    "update_cache_interval_minutes": 5  # Обновлять кэш каждые 5 минут
+    "update_cache_interval_minutes": 30
 }
 
 # Функция для получения полного URL API
