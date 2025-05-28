@@ -172,168 +172,146 @@ class OpenRouterClient:
         request_type = model_config.get("request_type", "standard")
         model_timeout = model_config.get("timeout", self.timeout)
         
-        # Получаем API ключ для модели
-        api_key = self._get_key_for_model(model)
-        
-        # Проверка API ключа
-        if not api_key or len(api_key) < 20:  # Минимальная длина для OpenRouter API ключа
-            logger.error(f"Некорректный API ключ для модели {model}: {api_key}")
-            raise NetworkException(f"Некорректный API ключ для модели {model}")
-        
-        # Подготавливаем payload в зависимости от типа запроса
-        if request_type == "openai":
-            payload = self._prepare_openai_payload(model, messages, max_tokens, temperature)
-        else:
-            payload = self._prepare_standard_payload(model, messages, max_tokens, temperature)
-        
-        # Логируем информацию о запросе
-        logger.info(f"Запрос к OpenRouter API: модель={model}, max_tokens={max_tokens}, request_type={request_type}")
-        
         for attempt in range(retry_count):
             try:
-                # Увеличиваем таймаут до минимум 5 секунд
+                current_model_for_attempt = model # Используем model, которая может меняться между попытками (из-за ротации)
+                api_key = self._get_key_for_model(current_model_for_attempt)
+
+                # Проверка API ключа
+                if not api_key or len(api_key) < 20:
+                    logger.error(f"Некорректный API ключ для модели {current_model_for_attempt} (попытка {attempt+1}): {api_key}")
+                    if attempt == retry_count - 1:
+                        raise NetworkException(f"Некорректный API ключ для модели {current_model_for_attempt} после всех попыток.")
+                    await asyncio.sleep(1) # Небольшая пауза перед сменой ключа/модели
+                    self._rotate_key() # Пробуем другой ключ, если текущий невалиден
+                    continue
+
+                # Подготавливаем payload в зависимости от типа запроса
+                if request_type == "openai": # request_type должен быть актуален для current_model_for_attempt
+                    payload = self._prepare_openai_payload(current_model_for_attempt, messages, max_tokens, temperature)
+                else:
+                    payload = self._prepare_standard_payload(current_model_for_attempt, messages, max_tokens, temperature)
+                
+                logger.info(f"Попытка {attempt+1}/{retry_count}: Запрос к OpenRouter API: модель={current_model_for_attempt}, max_tokens={max_tokens}")
+
                 actual_timeout = max(model_timeout, 5)
                 
-                # Экспоненциальная задержка между попытками (кроме первой)
-                if attempt > 0:
-                    # Рассчитываем задержку с экспоненциальным ростом: 1, 2, 4, 8...
-                    backoff_time = 1 * (2 ** (attempt - 1))
-                    logger.info(f"Повторная попытка {attempt+1}/{retry_count} через {backoff_time} сек.")
+                if attempt > 0: # Пауза перед повторными попытками
+                    backoff_time = 1 * (2 ** (attempt - 1))  # 1, 2, 4...
+                    logger.info(f"Пауза перед повторной попыткой: {backoff_time} сек.")
                     await asyncio.sleep(backoff_time)
                 
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=actual_timeout)) as session:
                     headers = self._prepare_headers(api_key)
-                    logger.debug(f"Заголовки запроса: {headers}")
-                    
-                    # Логируем URL для диагностики
-                    logger.debug(f"URL запроса: {self.api_url}")
-                    
-                    # Логируем payload для отладки
-                    logger.debug(f"Payload запроса: {json.dumps(payload, ensure_ascii=False)}")
+                    logger.debug(f"Заголовки запроса (попытка {attempt+1}): {headers}")
+                    logger.debug(f"URL запроса (попытка {attempt+1}): {self.api_url}")
+                    logger.debug(f"Payload запроса (попытка {attempt+1}): {json.dumps(payload, ensure_ascii=False)}")
                     
                     try:
                         async with session.post(
                             self.api_url,
                             headers=headers,
                             json=payload,
-                            ssl=False  # Отключаем проверку SSL сертификатов
+                            ssl=False
                         ) as response:
                             response_text = await response.text()
-                            logger.debug(f"Полный ответ: {response_text}")
                             
                             if response.status == 200:
                                 try:
                                     result = json.loads(response_text)
-                                    # Проверка структуры ответа
-                                    if not result or 'choices' not in result:
-                                        logger.info(f"Получен некорректный ответ от OpenRouter: {response_text}")
-                                        # Ротация ключа при некорректном ответе
-                                        self._rotate_key()
+                                    if not result or 'choices' not in result or not result.get('choices') or \
+                                       'message' not in result['choices'][0] or 'content' not in result['choices'][0].get('message', {}):
+                                        logger.warning(f"Получен некорректный/пустой успешный ответ от OpenRouter (модель {current_model_for_attempt}, попытка {attempt+1}): {response_text}")
+                                        # Не ротируем ключ сразу, дадим шанс другим моделям или следующей попытке с этим же ключом, если ошибка временная
                                         if attempt == retry_count - 1:
-                                            raise NetworkException("Некорректный ответ от OpenRouter API")
+                                            raise NetworkException(f"Некорректный ответ от OpenRouter API для модели {current_model_for_attempt} после всех попыток: {response_text}")
+                                        # Продолжаем цикл, возможно, следующая попытка сработает или будет ротация
                                         continue
-                                        
-                                    # Проверка наличия списка choices и его непустоты
-                                    if not result.get('choices'):
-                                        logger.info("Получен ответ с пустым списком choices")
-                                        # Ротация ключа при пустом списке choices
-                                        self._rotate_key()
-                                        if attempt == retry_count - 1:
-                                            raise NetworkException("Получен ответ с пустым списком choices")
-                                        continue
-                                    
-                                    # Проверка первого элемента списка choices
-                                    try:
-                                        first_choice = result['choices'][0]
-                                        if 'message' not in first_choice or 'content' not in first_choice.get('message', {}):
-                                            logger.info("Некорректная структура первого элемента choices")
-                                            # Ротация ключа при некорректной структуре
-                                            self._rotate_key()
-                                            if attempt == retry_count - 1:
-                                                raise NetworkException("Некорректная структура ответа от OpenRouter API")
-                                            continue
-                                    except IndexError:
-                                        logger.info("Ошибка при доступе к первому элементу списка choices")
-                                        # Ротация ключа при ошибке индекса
-                                        self._rotate_key()
-                                        if attempt == retry_count - 1:
-                                            raise NetworkException("Ошибка индекса при обработке ответа от OpenRouter API")
-                                        continue
-                                    
+                                    logger.info(f"Успешный ответ от модели {current_model_for_attempt} (попытка {attempt+1})")
                                     return result
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"Ошибка декодирования JSON: {e}")
-                                    logger.error(f"Ответ: {response_text}")
-                                    # Ротация ключа при ошибке декодирования
-                                    self._rotate_key()
+
+                                except json.JSONDecodeError as e_json:
+                                    logger.error(f"Ошибка декодирования JSON (модель {current_model_for_attempt}, попытка {attempt+1}): {e_json}. Ответ: {response_text}")
                                     if attempt == retry_count - 1:
-                                        raise NetworkException(f"Ошибка декодирования JSON: {str(e)}")
-                                    continue
-                            
-                            # Обработка ошибок API
-                            logger.error(f"OpenRouter API ошибка: {response.status}, {response_text}")
+                                        raise NetworkException(f"Ошибка декодирования JSON от OpenRouter для модели {current_model_for_attempt}: {response_text}")
+                                    continue # Пробуем следующую попытку
+
+                            # Обработка ошибок API (статус не 200)
+                            logger.error(f"OpenRouter API ошибка (модель {current_model_for_attempt}, попытка {attempt+1}): Статус={response.status}, Ответ={response_text}")
                             
                             error_data = {}
                             try:
                                 error_data = json.loads(response_text)
-                            except:
-                                pass
+                            except json.JSONDecodeError:
+                                logger.warning(f"Не удалось декодировать JSON из ответа об ошибке (модель {current_model_for_attempt}): {response_text}")
                                 
-                            error_message = error_data.get('error', {}).get('message', 'Неизвестная ошибка')
-                            logger.error(f"Сообщение об ошибке: {error_message}")
-                            
-                            if response.status == 401 or response.status == 403:
-                                # Проблема с API ключом - ротация ключа
-                                logger.error(f"Ошибка авторизации для ключа: {api_key[:10]}...")
-                                self._rotate_key()
-                            elif response.status == 404:
-                                # Проблема с моделью - ротация модели
-                                logger.error(f"Модель не найдена: {model}")
-                                self._rotate_model()
-                            elif response.status == 429:
-                                # Rate limit - ротация ключа и увеличенная пауза
-                                logger.error(f"Превышен лимит запросов для ключа или модели: {api_key[:10]}...")
-                                
-                                # Если это бесплатная модель с ограничением, пробуем сменить модель
-                                if ":free" in model:
-                                    logger.info(f"Бесплатная модель {model} временно недоступна из-за лимитов, меняем модель")
+                            extracted_error_message = error_data.get('error', {}).get('message', 'Сообщение об ошибке не найдено в JSON.')
+                            detailed_error_for_exception = f"Статус={response.status}, Модель='{current_model_for_attempt}', Сообщение='{extracted_error_message}', ОтветOpenRouter='{response_text}'"
+
+                            if response.status in [401, 403]: # Ошибка авторизации
+                                logger.warning(f"Ошибка авторизации (401/403) для ключа {api_key[:10]}... (модель {current_model_for_attempt}). Ротация ключа.")
+                                self._rotate_key() 
+                            elif response.status == 404: # Модель не найдена
+                                logger.warning(f"Модель не найдена (404): {current_model_for_attempt}. Ротация модели.")
+                                model = self._rotate_model() # Обновляем основную 'model' для следующих попыток
+                                request_type = self._get_model_config(model).get("request_type", "standard") # Обновляем тип запроса для новой модели
+                            elif response.status == 429: # Превышен лимит запросов
+                                logger.warning(f"Превышен лимит запросов (429) для ключа {api_key[:10]}... или модели {current_model_for_attempt}.")
+                                if ":free" in current_model_for_attempt: # Если бесплатная модель, сразу меняем ее
+                                    logger.info(f"Бесплатная модель {current_model_for_attempt} временно недоступна, ротация модели.")
                                     model = self._rotate_model()
-                                else:
-                                    # Иначе меняем ключ и увеличиваем задержку
+                                    request_type = self._get_model_config(model).get("request_type", "standard")
+                                else: # Для платных моделей сначала ротируем ключ
                                     self._rotate_key()
+                                # Экспоненциальная задержка при 429
+                                current_backoff_429 = 5 * (2 ** attempt) 
+                                logger.info(f"Дополнительная задержка из-за Rate limit (429): {current_backoff_429} сек.")
+                                await asyncio.sleep(current_backoff_429)
+                            else: # Другие ошибки сервера
+                                logger.warning(f"Неизвестная ошибка API ({response.status}) для модели {current_model_for_attempt}. Ротация ключа.")
+                                self._rotate_key()
                                 
-                                # Экспоненциальная задержка при rate limit: 5, 10, 20 секунд...
-                                backoff_time = 5 * (2 ** attempt)
-                                logger.info(f"Rate limit backoff: {backoff_time} сек.")
-                                await asyncio.sleep(backoff_time)
-                            else:
-                                # Другие ошибки
-                                logger.error(f"Неизвестная ошибка API: {response.status}")
-                                self._rotate_key()  # Пробуем другой ключ для любой ошибки
-                                
-                            # Если это последняя попытка, выбрасываем исключение
                             if attempt == retry_count - 1:
-                                raise NetworkException(f"Ошибка OpenRouter API: {response.status}, {error_message}")
-                    except aiohttp.ClientConnectionError as e:
-                        logger.error(f"Ошибка соединения с API: {e}")
+                                raise NetworkException(f"Ошибка OpenRouter API после всех попыток: {detailed_error_for_exception}")
+                            # Пауза для остальных ошибок перед следующей попыткой будет в начале цикла
+
+                    except aiohttp.ClientConnectionError as e_conn:
+                        logger.error(f"Ошибка соединения с API (модель {current_model_for_attempt}, попытка {attempt+1}/{retry_count}): {e_conn}")
                         if attempt == retry_count - 1:
-                            raise NetworkException(f"Ошибка соединения: {str(e)}")
-                        await asyncio.sleep(1)
-                        continue
-                            
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.error(f"Ошибка сети при запросе к OpenRouter: {e}")
-                
-                # Если это последняя попытка, выбрасываем исключение
+                            raise NetworkException(f"Ошибка соединения с OpenRouter для модели {current_model_for_attempt}: {str(e_conn)}")
+                        self._rotate_key() # Пробуем другой ключ
+                        # Пауза будет в начале следующей итерации
+                    
+                    except asyncio.TimeoutError as e_timeout: # Отдельно ловим TimeoutError, т.к. он не всегда ClientError
+                        logger.error(f"Таймаут запроса (модель {current_model_for_attempt}, попытка {attempt+1}/{retry_count}): {e_timeout}")
+                        if attempt == retry_count - 1:
+                            raise NetworkException(f"Таймаут при запросе к OpenRouter для модели {current_model_for_attempt}: {str(e_timeout)}")
+                        self._rotate_key() # Пробуем другой ключ
+                        # Пауза будет в начале следующей итерации
+
+            except (aiohttp.ClientError) as e_client_other: # Ловим остальные ClientError, которые не ConnectionError
+                logger.error(f"Общая ошибка клиента aiohttp (модель {model}, попытка {attempt+1}/{retry_count}): {e_client_other}") # здесь model - это исходная модель на начало цикла
                 if attempt == retry_count - 1:
-                    raise NetworkException(f"Ошибка сети при запросе к OpenRouter: {str(e)}")
-                
-                # Ротация ключа при ошибке сети
+                    raise NetworkException(f"Общая ошибка клиента aiohttp при запросе к OpenRouter для модели {model}: {str(e_client_other)}")
                 self._rotate_key()
-                
-                # Пауза перед повторной попыткой
-                await asyncio.sleep(1)
-    
+                # Пауза будет в начале следующей итерации
+            
+            except NetworkException: # Перехватываем NetworkException, чтобы не попасть в общий Exception ниже
+                raise # И пробрасываем дальше, если это последняя попытка или нужно выйти
+            except Exception as e_general: # Ловим вообще все остальные неожиданные ошибки
+                logger.error(f"Неожиданная ошибка в make_request (модель {model}, попытка {attempt+1}/{retry_count}): {e_general}", exc_info=True)
+                if attempt == retry_count - 1:
+                    raise NetworkException(f"Неожиданная ошибка при запросе к OpenRouter для модели {model}: {str(e_general)}")
+                # При общих ошибках, возможно, стоит просто перейти к следующей попытке без ротации или с ротацией ключа
+                self._rotate_key() # Как минимум, попробуем другой ключ
+                # Пауза будет в начале следующей итерации
+
+        # Этот код не должен быть достигнут, если retry_count > 0,
+        # так как последняя попытка либо вернет результат, либо выбросит исключение.
+        # Но на всякий случай:
+        final_model_tried = model # или current_model_for_attempt, если определена в этой области видимости
+        raise NetworkException(f"Не удалось выполнить запрос к модели {final_model_tried} после {retry_count} попыток по неизвестной причине (код достиг конца функции make_request).")
+
     def extract_response_text(self, response: Dict[str, Any]) -> str:
         """
         Извлечение текста ответа из ответа API
@@ -393,7 +371,7 @@ class OpenRouterClient:
         user_message: str,
         max_tokens: int = 500,
         temperature: float = 0.7,
-        model: Optional[str] = None
+        model: Optional[str] = None # Изначально переданная модель (или None)
     ) -> str:
         """
         Генерация текста с помощью OpenRouter API
@@ -405,65 +383,75 @@ class OpenRouterClient:
         :param model: Конкретная модель для использования (опционально)
         :return: Сгенерированный текст
         """
-        # Если модель не указана, используем текущую
-        if not model:
-            model = self._get_current_model()
-            
+        
+        initial_model_param = model # Сохраняем исходный параметр model
+
         messages = [
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message}
         ]
         
-        # Логируем запрос для диагностики
-        logger.info(f"Отправка запроса к OpenRouter с моделью: {model}")
-        logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
+        # Если модель не указана явно, начинаем с текущей в ротации клиента
+        current_model_to_try = initial_model_param if initial_model_param else self._get_current_model()
         
-        # Счетчик попыток для всех моделей и ключей
-        total_attempts = len(self.api_keys) * len(self.models) * 2
+        # Количество общих попыток, учитывая ротацию моделей и ключей внутри make_request
+        # Здесь retry_count для make_request будет управлять внутренними попытками для ОДНОЙ модели
+        # А этот цикл будет управлять перебором моделей, если make_request для текущей модели фейлится окончательно
         
-        for attempt in range(total_attempts):
+        num_models_available = len(self.models)
+        num_keys_available = len(self.api_keys)
+        
+        # Попробуем каждую доступную модель хотя бы раз
+        for model_attempt_num in range(num_models_available): 
+            logger.info(f"Попытка генерации текста с моделью: {current_model_to_try} (общая попытка {model_attempt_num+1}/{num_models_available})")
+            logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
+
             try:
-                response = await self.make_request(
+                # make_request теперь сам управляет ротацией ключей и несколькими попытками для ОДНОЙ модели
+                # Передаем current_model_to_try в make_request.
+                # retry_count для make_request можно оставить по умолчанию (e.g., 3) или сделать настраиваемым.
+                response_data = await self.make_request(
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    model=model
+                    model=current_model_to_try, # Передаем текущую модель для попытки
+                    retry_count=max(1, num_keys_available) # Даем шанс каждому ключу для текущей модели
                 )
                 
-                text = self.extract_response_text(response)
+                text = self.extract_response_text(response_data)
                 
-                # Если текст пустой, пробуем другую модель/ключ
-                if not text.strip():
-                    logger.info("Получен пустой ответ от OpenRouter, пробуем другую модель/ключ")
-                    if attempt % 2 == 0:
-                        self._rotate_key()
-                    else:
-                        model = self._rotate_model()
-                    continue
-                
-                return text
-                
-            except Exception as e:
-                logger.error(f"Ошибка при генерации текста (попытка {attempt+1}/{total_attempts}): {e}")
-                
-                # Если это последняя попытка, выбрасываем исключение
-                if attempt == total_attempts - 1:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Не удалось сгенерировать текст после {total_attempts} попыток: {str(e)}"
-                    )
-                
-                # Чередуем ротацию ключей и моделей
-                if attempt % 2 == 0:
-                    self._rotate_key()
+                if text and text.strip():
+                    logger.info(f"Успешно сгенерирован текст моделью {current_model_to_try}")
+                    return text
                 else:
-                    model = self._rotate_model()
-                
-                # Пауза перед повторной попыткой
-                await asyncio.sleep(1)
+                    logger.warning(f"Модель {current_model_to_try} вернула пустой ответ. Пробуем следующую модель.")
+            
+            except NetworkException as e:
+                # NetworkException из make_request означает, что все попытки для current_model_to_try провалились
+                logger.error(f"NetworkException при попытке генерации моделью {current_model_to_try}: {e}. Пробуем следующую модель.")
+            except Exception as e_gen: # Другие неожиданные ошибки на этом уровне
+                logger.error(f"Неожиданная ошибка на уровне generate_text с моделью {current_model_to_try}: {e_gen}", exc_info=True)
+
+            # Если дошли сюда, значит, текущая модель не сработала или вернула пустой ответ
+            # Ротируем модель для следующей попытки цикла generate_text
+            # Важно: если initial_model_param был задан, мы не должны бесконечно ротировать, а только попробовать 1 раз.
+            if initial_model_param and model_attempt_num == 0: # Если модель была задана явно, и это была первая (и единственная) попытка для нее
+                logger.warning(f"Явно указанная модель {initial_model_param} не смогла сгенерировать текст.")
+                break # Выходим из цикла, если модель была указана и не сработала
+            
+            current_model_to_try = self._rotate_model() # Получаем следующую модель из списка клиента
+            if initial_model_param is None and current_model_to_try == self.models[0] and model_attempt_num > 0:
+                # Если переданная модель была None, и мы сделали полный круг по моделям
+                logger.warning("Сделан полный круг по всем доступным моделям, ни одна не сработала.")
+                break 
         
-        # Этот код не должен выполниться, но на всякий случай
+        # Если все модели перебраны и текст не получен
+        detail_message = f"Не удалось сгенерировать текст после попыток со всеми доступными моделями."
+        if initial_model_param:
+            detail_message = f"Не удалось сгенерировать текст с использованием указанной модели: {initial_model_param}."
+        
+        logger.error(detail_message)
         raise HTTPException(
             status_code=500,
-            detail="Не удалось сгенерировать текст: превышено максимальное количество попыток"
+            detail=detail_message
         ) 

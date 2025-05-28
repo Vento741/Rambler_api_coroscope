@@ -8,9 +8,10 @@ from typing import Dict, Any, Optional
 
 from fastapi import HTTPException
 
+from core.exceptions import NetworkException
 from core.openrouter_client import OpenRouterClient
 from core.cache import CacheManager
-from .models import ApiResponse
+from .models import ApiResponse, CalendarDayResponse
 from .parser import MoonCalendarParser
 
 logger = logging.getLogger(__name__)
@@ -247,21 +248,43 @@ class MoonCalendarOpenRouterService:
                     # Кэшируем ответ
                     await self._cache_response(calendar_date, user_type, response)
                     
-                    return ApiResponse(
-                        success=True,
-                        data=response,
-                        cached=False,
-                        model=model
-                    )
-                    
+                    # Парсим ответ
+                    parsed_data = self.parser.parse_calendar_day(response)
+                    if parsed_data:
+                        logger.info(f"Ответ успешно распарсен для модели {model}, дата: {calendar_date}")
+                        # Добавляем модель в данные для кэширования и ответа
+                        parsed_data_dict = parsed_data.model_dump()
+                        parsed_data_dict['model_used'] = model
+                        
+                        await self.cache_manager.set_moon_day_data(calendar_date, user_type, parsed_data_dict)
+                        return ApiResponse(
+                            success=True,
+                            data=CalendarDayResponse(**parsed_data_dict),
+                            model=model
+                        )
+                    else:
+                        logger.warning(f"Не удалось распарсить ответ от модели {model} для даты {calendar_date}: {response}")
+                        last_error = Exception(f"Не удалось распарсить ответ от модели {model}") # Обновляем ошибку, если парсинг не удался
+                        # Если парсинг не удался, продолжаем цикл, чтобы попробовать следующую модель
+                        continue
+
                 except Exception as e:
                     last_error = e
                     logger.error(f"Ошибка при использовании модели {model}: {e}")
                     continue
             
             # Если ни одна модель не сработала, возвращаем ошибку
-            error_message = f"Не удалось получить ответ ни от одной модели: {str(last_error)}" if last_error else "Все модели вернули пустой ответ"
-            logger.error(error_message)
+            if last_error:
+                if isinstance(last_error, NetworkException):
+                     # Используем полное сообщение из NetworkException
+                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка: {str(last_error)}"
+                else:
+                    # Для других исключений оставляем как было или добавляем тип исключения
+                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка ({type(last_error).__name__}): {str(last_error)}"
+            else:
+                error_message = "Все модели вернули пустой ответ или не смогли распарсить данные."
+            
+            logger.error(f"Финальная ошибка после перебора всех моделей для даты {calendar_date}: {error_message}")
             
             return ApiResponse(
                 success=False,

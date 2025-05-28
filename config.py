@@ -74,18 +74,18 @@ PROXY_PREFIX = os.getenv("PROXY_PREFIX", "")
 OPENROUTER_API_URL = os.getenv("URL_LINK_OPENROUTER", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_API_KEYS = [
     key for key in [
-        os.getenv("API_for_Gemini_2.0_Flash_Exp_free", ""),
         os.getenv("Qwen2.5_VL_72B_Instruct_free", ""),
         os.getenv("API_for_Gemini_2.0_Flash", ""),
+        os.getenv("API_for_Gemini_2.0_Flash_Exp_free", ""),
         os.getenv("DeepSeek_Prover_V2_free", "")
     ] if key
 ]
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
-    "google/gemini-2.0-flash-001",
     "google/gemini-2.0-flash-exp:free",
     "qwen/qwen2.5-vl-72b-instruct:free",
+    "google/gemini-2.0-flash-001",
     "deepseek/deepseek-prover-v2:free"
 ]
 
