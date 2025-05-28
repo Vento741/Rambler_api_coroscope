@@ -4,7 +4,7 @@
 import json
 import logging
 from datetime import date
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from fastapi import HTTPException
 
@@ -24,7 +24,8 @@ class MoonCalendarOpenRouterService:
         cache_manager: CacheManager,
         parser: MoonCalendarParser,
         openrouter_client: OpenRouterClient,
-        prompts_config: Dict[str, Dict[str, Any]]
+        prompts_config: Dict[str, Dict[str, Any]],
+        user_type_models: Dict[str, List[str]]
     ):
         """
         Инициализация сервиса
@@ -33,6 +34,7 @@ class MoonCalendarOpenRouterService:
         :param parser: Парсер лунного календаря
         :param openrouter_client: Клиент OpenRouter
         :param prompts_config: Конфигурация промптов для разных типов пользователей
+        :param user_type_models: Сопоставление типов пользователей и моделей
         """
         self.cache_manager = cache_manager
         self.parser = parser
