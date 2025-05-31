@@ -417,7 +417,7 @@ class OpenRouterClient:
         # Попробуем каждую доступную модель хотя бы раз
         for model_attempt_num in range(num_models_available): 
             logger.info(f"Попытка генерации текста с моделью: {current_model_to_try} (общая попытка {model_attempt_num+1}/{num_models_available})")
-            logger.debug(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
+            logger.info(f"Параметры запроса: max_tokens={max_tokens}, temperature={temperature}")
 
             try:
                 # make_request теперь сам управляет ротацией ключей и несколькими попытками для ОДНОЙ модели
