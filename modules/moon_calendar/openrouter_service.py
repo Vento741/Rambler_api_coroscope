@@ -41,8 +41,8 @@ class MoonCalendarOpenRouterService:
         
         # Сопоставление типов пользователей и моделей
         self.user_type_models = {
-            "free": ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free"],
-            "premium": ["google/gemini-2.0-flash-001", "qwen/qwen2.5-vl-72b-instruct:free"]
+            "free": ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free", "deepseek-r1-0528-qwen3-8b:free"],
+            "premium": ["google/gemini-2.0-flash-001", "qwen/qwen2.5-vl-72b-instruct:free", "deepseek-r1-0528-qwen3-8b:free"]
         }
     
     async def _get_calendar_data(self, calendar_date: date) -> Dict[str, Any]:
@@ -94,9 +94,9 @@ class MoonCalendarOpenRouterService:
                 f"Дата: {calendar_data['date']}\n"
                 f"Фаза луны: {calendar_data['moon_phase']}\n"
                 f"Лунный день: {moon_day.get('name', 'Не определен')}\n"
-                f"ЗАПРЕЩЕНО: Подтверждать задание, отвечать на вопросы, начинать свой ответ с 'я понял', 'Приступаю', 'Сейчас посмотрю' и т.д. и т.п. ЗАПРЕЩАЕТСЯ: использовать звёздочки (**) в ответе и форматирование (MARKDOWN, HTML)!\n"
-                f"Вместо выделения жирным - пиши заголовки заглавными буквами! В качестве разделителя используй двойной перенос строки и '===' \n"
-                f"Информация: {moon_day.get('info', 'Информация отсутствует')}"
+                f"Информация: {moon_day.get('info', 'Информация отсутствует')}\n\n"
+                f"Важно: Используй только простые символы. Избегай сложного форматирования. "
+                f"Для заголовков используй ЗАГЛАВНЫЕ БУКВЫ. Не используй звездочки, только обычный текст."
             )
         else:
             # Для премиум пользователей - полная информация
@@ -111,15 +111,12 @@ class MoonCalendarOpenRouterService:
             ])
             
             return (
-                f"Твоя задача - помочь пользователю с лунным календарем. \n"
-                f"Ты должен предоставить пользователю информацию о лунном дне, фазе луны и рекомендации на день. \n"
-                f"ОБЯЗАН: Сразу приступить к созданию сообщения о сегоднешнем дне, лунной фазе, лунном дне, рекомендациях на день. \n"
-                f"ЗАПРЕЩЕНО: Подтверждать задание, отвечать на вопросы, начинать свой ответ с 'я понял', 'Приступаю', 'Сейчас посмотрю' и т.д. и т.п. ЗАПРЕЩАЕТСЯ: использовать звёздочки (**) в ответе и форматирование (MARKDOWN, HTML)!\n"
-                f"Вместо выделения жирным - пиши заголовки заглавными буквами! В качестве разделителя используй двойной перенос строки и '===' \n"
                 f"Дата: {calendar_data['date']}\n"
                 f"Фаза луны: {calendar_data['moon_phase']}\n\n"
                 f"Лунные дни:\n{moon_days_text}\n\n"
-                f"Рекомендации:\n{recommendations_text}"
+                f"Рекомендации:\n{recommendations_text}\n\n"
+                f"Важно: Используй только простые символы. Избегай сложного форматирования. "
+                f"Для заголовков используй ЗАГЛАВНЫЕ БУКВЫ. Не используй звездочки, только обычный текст."
             )
     
     def _get_prompt_config(self, user_type: str) -> Dict[str, Any]:
@@ -195,6 +192,38 @@ class MoonCalendarOpenRouterService:
         logger.info(f"Кэширован ответ OpenRouter для {calendar_date} и типа {user_type}")
         logger.info(f"Размер сохраненного ответа: {len(response)} символов")
     
+    async def _clean_model_response(self, response: str) -> str:
+        """
+        Очистка ответа модели от потенциально проблемных символов
+        
+        :param response: Исходный ответ модели
+        :return: Очищенный ответ
+        """
+        import re
+        
+        # Замена сложных символов Unicode на простые аналоги
+        cleaned = response
+        
+        # Удаление потенциально проблемных комбинаций символов
+        cleaned = re.sub(r'\*\*(.+?)\*\*', r'\1', cleaned)  # Удаление маркеров жирного текста
+        cleaned = re.sub(r'```.*?```', '', cleaned, flags=re.DOTALL)  # Удаление блоков кода
+        cleaned = re.sub(r'`(.*?)`', r'\1', cleaned)  # Удаление инлайн-кода
+        
+        # Замена разделителей текста на простые переносы строк
+        cleaned = re.sub(r'---+', '\n\n', cleaned)
+        cleaned = re.sub(r'\*\*\*+', '\n\n', cleaned)
+        cleaned = re.sub(r'===+', '\n\n', cleaned)
+        
+        # Нормализация переносов строк
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        
+        # Проверка наличия текста после очистки
+        if not cleaned.strip():
+            logger.warning("После очистки ответа модели получен пустой текст")
+            return "Извините, возникла техническая проблема. Пожалуйста, попробуйте еще раз."
+        
+        return cleaned
+    
     async def get_moon_calendar_response(self, calendar_date: date, user_type: str) -> ApiResponse:
         """
         Получение ответа лунного календаря для пользователя
@@ -252,11 +281,14 @@ class MoonCalendarOpenRouterService:
                         logger.warning(f"Получен пустой ответ от модели {model}, пробуем следующую")
                         continue
                     
+                    # Очищаем ответ от потенциально проблемных символов
+                    cleaned_response = await self._clean_model_response(response)
+                    
                     # Ответ успешно получен
                     logger.info(f"Успешно получен ответ от модели {model}")
                     
                     # Кэшируем ответ
-                    await self._cache_response(calendar_date, user_type, response)
+                    await self._cache_response(calendar_date, user_type, cleaned_response)
                     
                     # Проверяем, что ответ действительно сохранен в кеше
                     verification_response = await self._get_cached_response(calendar_date, user_type)
@@ -268,7 +300,7 @@ class MoonCalendarOpenRouterService:
                     # Возвращаем ответ как строку, без попыток парсинга
                     return ApiResponse(
                         success=True,
-                        data=response,
+                        data=cleaned_response,
                         model=model
                     )
 

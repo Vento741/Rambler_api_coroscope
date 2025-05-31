@@ -154,6 +154,29 @@ class OpenRouterClient:
             
             # Добавляем дополнительные параметры для Gemini
             payload["response_format"] = {"type": "text"}
+            
+        # Специфичная обработка для модели deepseek-r1-0528-qwen3-8b:free
+        elif "deepseek-r1-0528-qwen3-8b" in model.lower():
+            # Переформатируем сообщения для совместимости с deepseek
+            formatted_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    formatted_messages.append({
+                        "role": "system",
+                        "content": msg["content"]
+                    })
+                elif msg["role"] == "user":
+                    formatted_messages.append({
+                        "role": "user",
+                        "content": msg["content"]
+                    })
+                else:
+                    formatted_messages.append(msg)
+            
+            payload["messages"] = formatted_messages
+            
+            # Добавляем дополнительные параметры для deepseek
+            payload["response_format"] = {"type": "text"}
         
         return payload
     
