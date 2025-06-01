@@ -28,23 +28,26 @@ class CacheManager:
     async def get(self, date_obj: date) -> Optional[Dict]:
         """Получение данных из кэша"""
         key = self._generate_key(date_obj)
+        logger.info(f"Попытка кэширования GET для ключа: {key}. Текущий размер кэша: {len(self._cache)}")
         
         if key in self._cache:
             cache_entry = self._cache[key]
             if not self._is_expired(cache_entry):
-                logger.info(f"Cache HIT for {date_obj}")
+                logger.info(f"Получен HIT для ключа: {key} (date: {date_obj})")
                 return copy.deepcopy(cache_entry['data'])  # Возвращаем копию данных
             else:
                 # Удаляем устаревшие данные
+                logger.warning(f"Кэш истек для ключа: {key} (date: {date_obj}). Удаляем сейчас.")
                 del self._cache[key]
-                logger.info(f"Cache EXPIRED for {date_obj}")
+                logger.info(f"После удаления устаревших данных для {key}. Текущий размер кэша: {len(self._cache)}")
         
-        logger.info(f"Cache MISS for {date_obj}")
+        logger.info(f"Кэш MISS для ключа: {key} (date: {date_obj})")
         return None
     
     async def set(self, date_obj: date, data: Dict) -> None:
         """Сохранение данных в кэш"""
         key = self._generate_key(date_obj)
+        logger.info(f"Попытка кэширования SET для ключа: {key} (date: {date_obj}). Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'Не словарь'}. Текущий размер кэша перед сохранением: {len(self._cache)}")
         
         # Проверяем, есть ли уже данные в кеше
         existing_data = None
@@ -87,17 +90,21 @@ class CacheManager:
                 'cached_at': datetime.now().isoformat()
             }
         
-        logger.info(f"Cache SET for {date_obj}")
+        logger.info(f"Кэширование SET успешно для ключа: {key} (date: {date_obj}). Текущий размер кэша после сохранения: {len(self._cache)}")
     
     async def clear_expired(self) -> None:
         """Очистка устаревших записей"""
         expired_keys = []
-        for key, cache_entry in self._cache.items():
+        logger.debug(f"Запуск clear_expired. Текущий размер кэша: {len(self._cache)}")
+        for key, cache_entry in list(self._cache.items()): # Iterate over a copy of items for safe deletion
             if self._is_expired(cache_entry):
+                logger.info(f"clear_expired: Найден устаревший ключ {key} (cached_at: {cache_entry['cached_at']})")
                 expired_keys.append(key)
         
         for key in expired_keys:
             del self._cache[key]
         
         if expired_keys:
-            logger.info(f"Cleared {len(expired_keys)} expired cache entries") 
+            logger.info(f"Очищено {len(expired_keys)} устаревших записей кэша. Текущий размер кэша: {len(self._cache)}")
+        else:
+            logger.debug(f"clear_expired: Не найдено устаревших записей. Текущий размер кэша: {len(self._cache)}") 
