@@ -38,8 +38,15 @@ class CacheManager:
     
     def _generate_key(self, date_obj: Union[str, date, datetime]) -> str:
         """Генерация ключа для кэша с нормализацией типов"""
-        normalized_date = self._normalize_date(date_obj)
-        return f"moon_calendar_{normalized_date.isoformat()}"
+        try:
+            normalized_date = self._normalize_date(date_obj)
+            return f"moon_calendar_{normalized_date.isoformat()}"
+        except Exception as e:
+            logger.error(f"Критическая ошибка в _generate_key для {date_obj}: {e}")
+            # Fallback для отладки
+            if isinstance(date_obj, str):
+                return f"moon_calendar_{date_obj}"
+            raise
     
     def _is_expired(self, cache_entry: Dict) -> bool:
         """Проверка истечения времени кэша"""
