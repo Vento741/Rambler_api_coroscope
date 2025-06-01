@@ -87,11 +87,11 @@ OPENROUTER_API_KEYS = [
 
 # Модели OpenRouter
 OPENROUTER_MODELS = [
+    "google/gemini-2.0-flash-001",
     "google/gemini-2.0-flash-exp:free",
     "qwen/qwen2.5-vl-72b-instruct:free",
-    "google/gemini-2.0-flash-001",
-    "deepseek/deepseek-prover-v2:free",
-    "deepseek-r1-0528-qwen3-8b:free"
+    "deepseek-r1-0528-qwen3-8b:free",
+    "deepseek/deepseek-prover-v2:free"
 ]
 
 # Сопоставление моделей и их API ключей
@@ -100,7 +100,7 @@ OPENROUTER_MODEL_API_KEYS = {
     "google/gemini-2.0-flash-exp:free": os.getenv("API_for_Gemini_2.0_Flash_Exp_free", ""),
     "qwen/qwen2.5-vl-72b-instruct:free": os.getenv("Qwen2.5_VL_72B_Instruct_free", ""),
     "deepseek/deepseek-prover-v2:free": os.getenv("DeepSeek_Prover_V2_free", ""),
-    "deepseek-r1-0528-qwen3-8b:free": os.getenv("DeepSeek_Prover_V2_free", "")
+    "deepseek-r1-0528-qwen3-8b:free": os.getenv("Deepseek_R1_0528_Qwen3_8B_free", "")
 }
 
 # Конфигурация специфичных запросов для моделей

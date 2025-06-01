@@ -39,10 +39,19 @@ class MoonCalendarOpenRouterService:
         self.openrouter_client = openrouter_client
         self.prompts_config = prompts_config
         
-        # Сопоставление типов пользователей и моделей
+        # Сопоставление типов пользователей и моделей (с приоритетом)
         self.user_type_models = {
-            "free": ["google/gemini-2.0-flash-001", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-prover-v2:free", "deepseek-r1-0528-qwen3-8b:free"],
-            "premium": ["google/gemini-2.0-flash-001", "qwen/qwen2.5-vl-72b-instruct:free", "deepseek-r1-0528-qwen3-8b:free"]
+            "free": [
+                "google/gemini-2.0-flash-001", 
+                "google/gemini-2.0-flash-exp:free", 
+                "deepseek-r1-0528-qwen3-8b:free", # Добавили как одну из основных
+                "deepseek/deepseek-prover-v2:free" 
+            ],
+            "premium": [
+                "google/gemini-2.0-flash-001", 
+                "qwen/qwen2.5-vl-72b-instruct:free", 
+                "deepseek-r1-0528-qwen3-8b:free"  # Добавили как одну из основных
+            ]
         }
     
     async def _get_calendar_data(self, calendar_date: date) -> Dict[str, Any]:
@@ -226,116 +235,121 @@ class MoonCalendarOpenRouterService:
     
     async def get_moon_calendar_response(self, calendar_date: date, user_type: str) -> ApiResponse:
         """
-        Получение ответа лунного календаря для пользователя
+        Получение ответа лунного календаря для пользователя (только из кэша).
+        AI-генерация теперь происходит в фоновой задаче.
         
         :param calendar_date: Дата календаря
         :param user_type: Тип пользователя (free/premium)
         :return: Ответ API
         """
         try:
-            # Проверяем наличие кэшированного ответа
-            cached_response = await self._get_cached_response(calendar_date, user_type)
-            if cached_response:
-                logger.info(f"Возвращаю кэшированный ответ для {calendar_date} и типа {user_type}")
+            # Проверяем наличие кэшированного AI-ответа
+            cached_ai_response = await self._get_cached_response(calendar_date, user_type)
+            
+            if cached_ai_response:
+                logger.info(f"Возвращаю кэшированный AI-ответ для {calendar_date} и типа {user_type}")
                 return ApiResponse(
                     success=True,
-                    data=cached_response,
+                    data=cached_ai_response,
                     cached=True,
-                    model="cached"  # Указываем, что ответ из кэша
+                    model="cached_ai_response" 
                 )
-            
-            # Получаем данные календаря
-            calendar_data = await self._get_calendar_data(calendar_date)
-            
-            # Получаем конфигурацию промпта
-            prompt_config = self._get_prompt_config(user_type)
-            
-            # Подготавливаем сообщение пользователя
-            user_message = self._prepare_user_message(calendar_data, user_type)
-            
-            # Получаем список моделей для типа пользователя
-            models = self._get_models_for_user_type(user_type)
-            
-            # Логируем информацию о запросе
-            logger.info(f"Подготовлен запрос к OpenRouter для {calendar_date} и типа {user_type}")
-            logger.info(f"Доступные модели: {models}")
-            logger.info(f"Сообщение пользователя: {user_message[:100]}...")
-            
-            # Пробуем каждую модель по порядку
-            last_error = None
-            for model in models:
-                try:
-                    logger.info(f"Пробуем модель: {model}")
-                    
-                    # Генерируем ответ через OpenRouter с указанной моделью
-                    response = await self.openrouter_client.generate_text(
-                        system_message=prompt_config["system_message"],
-                        user_message=user_message,
-                        max_tokens=prompt_config["max_tokens"],
-                        temperature=prompt_config["temperature"],
-                        model=model
-                    )
-                    
-                    # Проверка на пустой ответ
-                    if not response or not response.strip():
-                        logger.warning(f"Получен пустой ответ от модели {model}, пробуем следующую")
-                        continue
-                    
-                    # Очищаем ответ от потенциально проблемных символов
-                    cleaned_response = await self._clean_model_response(response)
-                    
-                    # Ответ успешно получен
-                    logger.info(f"Успешно получен ответ от модели {model}")
-                    
-                    # Кэшируем ответ
-                    await self._cache_response(calendar_date, user_type, cleaned_response)
-                    
-                    # Проверяем, что ответ действительно сохранен в кеше
-                    verification_response = await self._get_cached_response(calendar_date, user_type)
-                    if verification_response:
-                        logger.info(f"Проверка кеширования: ответ успешно сохранен в кеше для {calendar_date} и типа {user_type}")
-                    else:
-                        logger.warning(f"Проверка кеширования: ответ НЕ сохранен в кеше для {calendar_date} и типа {user_type}")
-                    
-                    # Возвращаем ответ как строку, без попыток парсинга
+            else:
+                # Если AI-ответа нет, проверяем, есть ли хотя бы спарсенные данные
+                # Это поможет понять, была ли уже запущена фоновая задача для этой даты
+                parsed_data_from_cache = await self.cache_manager.get(calendar_date)
+                if parsed_data_from_cache:
+                    logger.warning(f"Кэшированный AI-ответ для {calendar_date} (тип: {user_type}) НЕ НАЙДЕН, но спарсенные данные ЕСТЬ. Возможно, AI-генерация еще не завершена.")
                     return ApiResponse(
-                        success=True,
-                        data=cleaned_response,
-                        model=model
+                        success=False,
+                        error=f"Прогноз для {calendar_date} (тип: {user_type}) еще не готов. Пожалуйста, попробуйте позже.",
+                        model="parsed_data_exists_no_ai_response"
+                    )
+                else:
+                    logger.warning(f"ДАННЫЕ для {calendar_date} НЕ НАЙДЕНЫ в кэше. Фоновая задача, возможно, еще не обработала эту дату.")
+                    return ApiResponse(
+                        success=False,
+                        error=f"Данные для {calendar_date} еще не обработаны. Пожалуйста, попробуйте позже.",
+                        model="no_data_in_cache"
                     )
 
-                except Exception as e:
-                    last_error = e
-                    logger.error(f"Ошибка при использовании модели {model}: {e}")
-                    continue
-            
-            # Если ни одна модель не сработала, возвращаем ошибку
-            if last_error:
-                if isinstance(last_error, NetworkException):
-                     # Используем полное сообщение из NetworkException
-                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка: {str(last_error)}"
-                else:
-                    # Для других исключений оставляем как было или добавляем тип исключения
-                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка ({type(last_error).__name__}): {str(last_error)}"
-            else:
-                error_message = "Все модели вернули пустой ответ или не смогли распарсить данные."
-            
-            logger.error(f"Финальная ошибка после перебора всех моделей для даты {calendar_date}: {error_message}")
-            
-            return ApiResponse(
-                success=False,
-                error=error_message
-            )
-            
-        except HTTPException as e:
-            logger.error(f"Ошибка HTTP: {e.detail}")
-            return ApiResponse(
-                success=False,
-                error=f"Ошибка сервера: {e.detail}"
-            )
         except Exception as e:
-            logger.error(f"Неожиданная ошибка при обработке запроса: {e}", exc_info=True)
+            logger.error(f"Неожиданная ошибка при получении кэшированного AI-ответа для {calendar_date} (тип: {user_type}): {e}", exc_info=True)
             return ApiResponse(
                 success=False,
-                error=f"Внутренняя ошибка сервера: {str(e)}"
-            ) 
+                error=f"Внутренняя ошибка сервера при получении прогноза: {str(e)}"
+            )
+
+    async def background_generate_and_cache_ai_responses(self, calendar_date: date):
+        """
+        Фоновая генерация и кэширование AI-ответов для всех типов пользователей.
+        Этот метод вызывается из MoonCalendarTasks.
+        Предполагается, что спарсенные данные для calendar_date уже лежат в кэше.
+        """
+        logger.info(f"[BG_AI_GEN] Запуск генерации AI-ответов для {calendar_date}")
+        
+        try:
+            # Получаем спарсенные данные календаря (должны быть уже в кэше)
+            calendar_data = await self._get_calendar_data(calendar_date)
+            if not calendar_data:
+                logger.error(f"[BG_AI_GEN] Спарсенные данные для {calendar_date} не найдены в кэше. AI-генерация прервана.")
+                return
+
+            user_types_to_process = ["free", "premium"]
+
+            for user_type in user_types_to_process:
+                logger.info(f"[BG_AI_GEN] Генерация для {calendar_date}, тип: {user_type}")
+                try:
+                    # Проверяем, нет ли уже свежего AI ответа для этого типа (на всякий случай, если задача перезапустилась)
+                    # Это нестрогая проверка, основная логика в get_moon_calendar_response
+                    # if await self._get_cached_response(calendar_date, user_type):
+                    #     logger.info(f"[BG_AI_GEN] AI-ответ для {calendar_date} (тип: {user_type}) уже существует и свежий. Пропускаем.")
+                    #     continue
+                        
+                    prompt_config = self._get_prompt_config(user_type)
+                    user_message = self._prepare_user_message(calendar_data, user_type)
+                    models = self._get_models_for_user_type(user_type)
+                    
+                    logger.info(f"[BG_AI_GEN] Подготовлен запрос к OpenRouter для {calendar_date}, тип: {user_type}. Доступные модели: {models}")
+                    
+                    ai_response_text = None
+                    selected_model = None
+                    last_error_details = "Неизвестная ошибка"
+
+                    for model_name in models:
+                        try:
+                            logger.info(f"[BG_AI_GEN] Пробуем модель: {model_name} для {calendar_date} (тип: {user_type})")
+                            response_content = await self.openrouter_client.generate_text(
+                                system_message=prompt_config["system_message"],
+                                user_message=user_message,
+                                max_tokens=prompt_config["max_tokens"],
+                                temperature=prompt_config["temperature"],
+                                model=model_name
+                            )
+                            
+                            if response_content and response_content.strip():
+                                ai_response_text = await self._clean_model_response(response_content)
+                                selected_model = model_name
+                                logger.info(f"[BG_AI_GEN] Успешно получен и очищен ответ от модели {model_name} для {calendar_date} (тип: {user_type})")
+                                break # Успех, выходим из цикла моделей
+                            else:
+                                logger.warning(f"[BG_AI_GEN] Модель {model_name} вернула пустой ответ для {calendar_date} (тип: {user_type}). Пробуем следующую.")
+                                last_error_details = f"Модель {model_name} вернула пустой ответ."
+                        except Exception as e_model:
+                            last_error_details = str(e_model)
+                            logger.error(f"[BG_AI_GEN] Ошибка при использовании модели {model_name} для {calendar_date} (тип: {user_type}): {e_model}", exc_info=True)
+                            continue # Пробуем следующую модель
+                    
+                    if ai_response_text and selected_model:
+                        await self._cache_response(calendar_date, user_type, ai_response_text)
+                        logger.info(f"[BG_AI_GEN] AI-ответ от {selected_model} для {calendar_date} (тип: {user_type}) сохранен в кэш.")
+                    else:
+                        logger.error(f"[BG_AI_GEN] Не удалось получить AI-ответ ни от одной модели для {calendar_date} (тип: {user_type}). Последняя ошибка: {last_error_details}")
+
+                except Exception as e_user_type:
+                    logger.error(f"[BG_AI_GEN] Ошибка при генерации AI-ответа для {calendar_date} (тип: {user_type}): {e_user_type}", exc_info=True)
+            
+            logger.info(f"[BG_AI_GEN] Завершение генерации AI-ответов для {calendar_date}")
+
+        except Exception as e_main:
+            logger.error(f"[BG_AI_GEN] Общая ошибка в background_generate_and_cache_ai_responses для {calendar_date}: {e_main}", exc_info=True) 

@@ -17,9 +17,10 @@ import config
 from core.cache import CacheManager
 from api.v1 import health, moon_calendar, tarot, numerology, astro_bot
 from api.middleware import log_request_middleware
-from modules.moon_calendar import MoonCalendarParser
+from modules.moon_calendar import MoonCalendarParser, MoonCalendarOpenRouterService
 from modules.moon_calendar.tasks import MoonCalendarTasks
 from api.v1.tarot_puzzlebot import router as tarot_puzzlebot_router
+from core.openrouter_client import OpenRouterClient
 
 # Создаем директорию для логов, если она не существует
 logs_dir = Path("logs")
@@ -39,7 +40,27 @@ logger = logging.getLogger(__name__)
 # Глобальные объекты
 cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
 parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
-moon_calendar_tasks = MoonCalendarTasks(cache_manager, parser)
+
+# Инициализация OpenRouter клиента для лунного календаря
+# (Эта конфигурация аналогична той, что используется в astro_bot.py)
+openrouter_client_for_moon_tasks = OpenRouterClient(
+    api_url=config.OPENROUTER_API_URL,
+    api_keys=config.OPENROUTER_API_KEYS,
+    models=config.OPENROUTER_MODELS,
+    model_configs=config.OPENROUTER_MODEL_CONFIGS,
+    model_api_keys=config.OPENROUTER_MODEL_API_KEYS,
+    timeout=60  # Таймаут для запросов от фоновой задачи
+)
+
+# Инициализация сервиса OpenRouter для лунного календаря
+moon_openrouter_service = MoonCalendarOpenRouterService(
+    cache_manager=cache_manager,
+    parser=parser,
+    openrouter_client=openrouter_client_for_moon_tasks,
+    prompts_config=config.OPENROUTER_PROMPTS
+)
+
+moon_calendar_tasks = MoonCalendarTasks(cache_manager, parser, moon_openrouter_service)
 
 # ================= BACKGROUND TASKS =================
 
@@ -50,9 +71,9 @@ async def cleanup_cache_task(cache_manager: CacheManager):
         await asyncio.sleep(config.CACHE_CLEANUP_INTERVAL)
 
 async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
-    """Фоновая задача обновления кэша лунного календаря"""
-    # Сначала обновляем кэш сразу при запуске
-    await tasks.update_calendar_cache()
+    """Фоновая задача обновления кэша лунного календаря и генерации AI-ответов"""
+    # Сначала обновляем кэш и генерируем ответы сразу при запуске
+    await tasks.update_calendar_cache_and_generate_ai_responses()
     
     # Затем запускаем периодическое обновление
     await tasks.run_periodic_update(config.BACKGROUND_TASKS["update_cache_interval_minutes"])
