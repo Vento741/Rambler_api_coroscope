@@ -5,111 +5,183 @@ from datetime import datetime, date
 from typing import Dict, Any, Optional
 import logging
 import copy
-import uuid
+import pickle
+import aioredis
+import config
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
 class CacheManager:
-    """Асинхронный менеджер кэша с TTL"""
-    
-    def __init__(self, ttl_minutes: int = 60):  # Увеличиваем время жизни кеша до 60 минут
-        self._cache: Dict[str, Dict] = {}
-        self._ttl_minutes = ttl_minutes
-        self.instance_id = uuid.uuid4() # Уникальный ID для экземпляра
-        logger.info(f"CacheManager instance {self.instance_id} initialized. TTL set to {ttl_minutes} minutes.")
-        
+    """Асинхронный менеджер кэша с TTL на базе Redis"""
+
+    def __init__(self, ttl_minutes: int = 60):
+        """
+        Инициализация менеджера кэша с подключением к Redis.
+
+        :param ttl_minutes: Время жизни кэша в минутах.
+        """
+        self._ttl_seconds = ttl_minutes * 60
+        self.redis: Optional[aioredis.Redis] = None # Будет инициализирован в connect()
+
+    async def connect(self):
+        """Устанавливает асинхронное подключение к Redis."""
+        try:
+            # Используем from_url для подключения с пулом соединений
+            self.redis = aioredis.from_url(config.REDIS_URL, encoding="utf-8", decode_responses=False) # decode_responses=False для работы с pickle
+            logger.info(f"Успешно подключено к Redis по адресу: {config.REDIS_URL}")
+            # Проверяем соединение
+            await self.redis.ping()
+            logger.info("Redis connection ping successful.")
+        except Exception as e:
+            logger.critical(f"НЕ УДАЛОСЬ ПОДКЛЮЧИТЬСЯ К REDIS по адресу {config.REDIS_URL}: {e}", exc_info=True)
+            # В продакшене, возможно, стоит здесь предпринять другие действия (например, завершить приложение)
+            # В рамках текущей задачи просто логируем критическую ошибку.
+            self.redis = None # Убедимся, что self.redis None при ошибке
+
+    async def close(self):
+        """Закрывает соединение с Redis."""
+        if self.redis:
+            await self.redis.close()
+            logger.info("Соединение с Redis закрыто.")
+
     def _generate_key(self, date_obj: date) -> str:
         """Генерация ключа для кэша"""
         return f"moon_calendar_{date_obj.isoformat()}"
-    
-    def _is_expired(self, cache_entry: Dict) -> bool:
-        """Проверка истечения времени кэша"""
-        cached_time = datetime.fromisoformat(cache_entry['cached_at'])
-        return (datetime.now() - cached_time).total_seconds() > (self._ttl_minutes * 60)
-    
+
     async def get(self, date_obj: date) -> Optional[Dict]:
-        """Получение данных из кэша"""
+        """
+        Получение данных из кэша Redis.
+
+        :param date_obj: Дата, для которой нужно получить данные.
+        :return: Данные из кэша или None, если нет данных или Redis недоступен.
+        """
+        if not self.redis:
+            logger.error("Попытка GET из кэша, но Redis не подключен.")
+            return None
+
         key = self._generate_key(date_obj)
-        logger.info(f"[CacheManager {self.instance_id}] Попытка кэширования GET для ключа: {key}. Текущий размер кэша: {len(self._cache)}")
-        
-        if key in self._cache:
-            cache_entry = self._cache[key]
-            if not self._is_expired(cache_entry):
-                logger.info(f"[CacheManager {self.instance_id}] Получен HIT для ключа: {key} (date: {date_obj})")
-                return copy.deepcopy(cache_entry['data'])  # Возвращаем копию данных
+        logger.info(f"Попытка кэширования GET для ключа: {key}")
+
+        try:
+            cached_data_bytes = await self.redis.get(key)
+
+            if cached_data_bytes is not None:
+                try:
+                    # Десериализация данных из байтов
+                    cached_data = pickle.loads(cached_data_bytes)
+                    logger.info(f"Получен HIT для ключа: {key} (date: {date_obj})")
+                    # Redis TTL управляет сроком жизни, отдельная проверка не нужна
+                    return cached_data
+                except (pickle.UnpicklingError, EOFError, AttributeError) as e:
+                    logger.error(f"Ошибка десериализации данных для ключа {key}: {e}. Удаляю некорректную запись.", exc_info=True)
+                    await self.redis.delete(key) # Удаляем поврежденную запись
+                    logger.info(f"Удалена некорректная запись для ключа {key}")
+                    return None # Возвращаем None после удаления некорректных данных
             else:
-                # Удаляем устаревшие данные
-                logger.warning(f"[CacheManager {self.instance_id}] Кэш истек для ключа: {key} (date: {date_obj}). Удаляем сейчас. Размер кеша до удаления: {len(self._cache)}")
-                del self._cache[key]
-                logger.info(f"[CacheManager {self.instance_id}] После удаления устаревших данных для {key}. Текущий размер кэша: {len(self._cache)}")
-        
-        logger.info(f"[CacheManager {self.instance_id}] Кэш MISS для ключа: {key} (date: {date_obj})")
-        return None
-    
+                logger.info(f"Кэш MISS для ключа: {key} (date: {date_obj})")
+                return None
+
+        except aioredis.exceptions.RedisError as e:
+            logger.error(f"Redis error during GET operation for key {key}: {e}", exc_info=True)
+            # Возможно, здесь стоит обработать конкретные ошибки Redis, например, проблемы с соединением
+            return None
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка в CacheManager.get для ключа {key}: {e}", exc_info=True)
+            return None
+
     async def set(self, date_obj: date, data: Dict) -> None:
-        """Сохранение данных в кэш"""
+        """
+        Сохранение данных в кэш Redis с установленным TTL.
+        Обрабатывает слияние данных при частичном обновлении (например, добавлении AI-ответа).
+
+        :param date_obj: Дата, для которой нужно сохранить данные.
+        :param data: Данные для сохранения (словарь).
+        """
+        if not self.redis:
+            logger.error("Попытка SET в кэш, но Redis не подключен.")
+            return
+
         key = self._generate_key(date_obj)
-        logger.info(f"[CacheManager {self.instance_id}] Попытка кэширования SET для ключа: {key} (date: {date_obj}). Ключи данных: {list(data.keys()) if isinstance(data, dict) else 'Не словарь'}. Текущий размер кэша перед сохранением: {len(self._cache)}")
-        
-        # Проверяем, есть ли уже данные в кеше
-        existing_data = None
-        if key in self._cache and not self._is_expired(self._cache[key]):
-            existing_data = self._cache[key]['data']
-        
-        # Если данные уже есть, обновляем только новые поля, сохраняя существующие
-        if existing_data and isinstance(existing_data, dict) and isinstance(data, dict):
-            # Создаем глубокую копию существующих данных
-            merged_data = copy.deepcopy(existing_data)
-            
-            # Если в новых данных есть openrouter_responses, обрабатываем их отдельно
-            if 'openrouter_responses' in data:
-                if 'openrouter_responses' not in merged_data:
-                    merged_data['openrouter_responses'] = {}
-                
-                # Обновляем или добавляем ответы для каждого типа пользователя
-                for user_type, response in data['openrouter_responses'].items():
-                    merged_data['openrouter_responses'][user_type] = response
-                
-                # Удаляем openrouter_responses из data, чтобы избежать дублирования
-                data_copy = copy.deepcopy(data)
-                del data_copy['openrouter_responses']
-                
-                # Обновляем остальные поля
-                merged_data.update(data_copy)
-            else:
-                # Если нет openrouter_responses, просто обновляем данные
-                merged_data.update(data)
-            
-            # Сохраняем объединенные данные
-            self._cache[key] = {
-                'data': merged_data,
-                'cached_at': datetime.now().isoformat()
-            }
-        else:
-            # Если данных нет или они не словари, просто сохраняем новые данные
-            self._cache[key] = {
-                'data': copy.deepcopy(data),  # Сохраняем копию данных
-                'cached_at': datetime.now().isoformat()
-            }
-        
-        logger.info(f"[CacheManager {self.instance_id}] Кэширование SET успешно для ключа: {key} (date: {date_obj}). Текущий размер кэша после сохранения: {len(self._cache)}")
-    
+        logger.info(f"Попытка кэширования SET для ключа: {key} (date: {date_obj})")
+        logger.debug(f"Данные для сохранения (начало): {str(data)[:200]}...") # Логируем начало данных
+
+        try:
+            # Перед сохранением новых данных, попробуем получить текущие из Redis
+            # Это нужно для реализации логики слияния данных (парсинг + AI-ответы)
+            existing_data_bytes = await self.redis.get(key)
+            existing_data = None
+            if existing_data_bytes:
+                try:
+                     existing_data = pickle.loads(existing_data_bytes)
+                     # Проверяем, что существующие данные - это словарь, иначе игнорируем их
+                     if not isinstance(existing_data, dict):
+                         logger.warning(f"Существующие данные для ключа {key} не являются словарем. Игнорирую их.")
+                         existing_data = None
+                except (pickle.UnpicklingError, EOFError, AttributeError) as e:
+                     logger.warning(f"Ошибка десериализации существующих данных для ключа {key} при SET: {e}. Игнорирую их.", exc_info=True)
+                     existing_data = None # Игнорируем поврежденные данные
+
+            data_to_save = data # Начинаем с данных, которые переданы в SET
+
+            # Логика слияния данных:
+            # Если существующие данные есть И это словари, пытаемся их объединить.
+            # Предполагается, что data_to_save уже содержит спарсенные данные (если они были получены)
+            # и может содержать новый AI-ответ вложенный в 'openrouter_responses'.
+            # Цель: сохранить ВСЕ AI-ответы, которые уже есть в кеше, если их нет в текущих data_to_save.
+            if existing_data and isinstance(existing_data, dict) and isinstance(data_to_save, dict):
+                # Создаем копию существующих данных, чтобы не модифицировать их напрямую, если они используются где-то еще (хотя CacheManager.get уже возвращает копию)
+                merged_data = existing_data #existing_data уже является копией из get()
+
+                # Если в новых данных есть openrouter_responses, сливаем их с существующими
+                if 'openrouter_responses' in data_to_save and isinstance(data_to_save['openrouter_responses'], dict):
+                     if 'openrouter_responses' not in merged_data or not isinstance(merged_data['openrouter_responses'], dict):
+                        merged_data['openrouter_responses'] = {}
+
+                     # Объединяем ответы для разных типов пользователей
+                     merged_data['openrouter_responses'].update(data_to_save['openrouter_responses'])
+
+                     # Удаляем openrouter_responses из data_to_save, чтобы избежать их дублирования
+                     # (остальные поля из data_to_save будут просто обновлены)
+                     data_without_ai_responses = {k: v for k, v in data_to_save.items() if k != 'openrouter_responses'}
+                else:
+                     # Если в новых данных нет openrouter_responses, используем data_to_save как есть
+                     # и сохраняем существующие AI-ответы из merged_data (если они были)
+                     data_without_ai_responses = data_to_save # просто переименовываем для ясности
+
+                # Обновляем остальные поля в merged_data из data_to_save
+                # Важно: это перезапишет не-AI поля из existing_data данными из data_to_save
+                # Это правильно, т.к. SET вызывается для сохранения свежих данных (либо парсинга, либо после парсинга+AI)
+                merged_data.update(data_without_ai_responses)
+
+                data_to_save = merged_data # Теперь сохраняем объединенные данные
+
+            # Сериализация данных в байты
+            pickled_data = pickle.dumps(data_to_save)
+
+            # Сохранение данных в Redis с TTL
+            await self.redis.set(key, pickled_data, ex=self._ttl_seconds)
+
+            logger.info(f"Кэширование SET успешно для ключа: {key} (date: {date_obj}) с TTL {self._ttl_seconds} сек.")
+            # В Redis нет прямого способа получить размер всех ключей без KEYS, который может быть медленным на больших базах.
+            # Поэтому не логируем размер кэша после SET, как это было с in-memory словарем.
+
+        except aioredis.exceptions.RedisError as e:
+            logger.error(f"Redis error during SET operation for key {key}: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка в CacheManager.set для ключа {key}: {e}", exc_info=True)
+
+    # Метод clear_expired теперь может быть упрощен или удален,
+    # так как Redis автоматически удаляет ключи по TTL.
+    # Если вам нужна функция очистки для других целей (например, ручного сброса),
+    # ее можно адаптировать для удаления ключей по шаблону, но для TTL она не нужна.
+    # Оставляю заглушку, чтобы не ломать код, который может ее вызывать, но по сути она не делает ничего для TTL.
     async def clear_expired(self) -> None:
-        """Очистка устаревших записей"""
-        expired_keys = []
-        logger.debug(f"[CacheManager {self.instance_id}] Запуск clear_expired. Текущий размер кэша: {len(self._cache)}")
-        for key, cache_entry in list(self._cache.items()): # Iterate over a copy of items for safe deletion
-            if self._is_expired(cache_entry):
-                logger.info(f"[CacheManager {self.instance_id}] clear_expired: Найден устаревший ключ {key} (cached_at: {cache_entry['cached_at']}). Размер кеша до удаления: {len(self._cache)}")
-                expired_keys.append(key)
-        
-        for key_to_delete in expired_keys: # Renamed variable to avoid confusion
-            logger.info(f"[CacheManager {self.instance_id}] clear_expired: Удаление ключа {key_to_delete}. Размер кеша до удаления этого ключа: {len(self._cache)}")
-            del self._cache[key_to_delete] # Make sure this is self._cache
-            logger.info(f"[CacheManager {self.instance_id}] clear_expired: Ключ {key_to_delete} удален. Текущий размер кэша: {len(self._cache)}")
-        
-        if expired_keys:
-            logger.info(f"[CacheManager {self.instance_id}] Очищено {len(expired_keys)} устаревших записей кэша. Текущий размер кэша: {len(self._cache)}")
-        else:
-            logger.debug(f"[CacheManager {self.instance_id}] clear_expired: Не найдено устаревших записей. Текущий размер кэша: {len(self._cache)}") 
+        """
+        Заглушка для совместимости. Redis автоматически удаляет ключи по TTL.
+        Этот метод ничего не делает для TTL-очистки.
+        """
+        logger.debug("CacheManager.clear_expired вызван, но Redis управляет TTL автоматически.")
+        # Если нужна очистка по шаблону или другим критериям,
+        # здесь можно добавить логику с использованием await self.redis.delete() или других команд.
+        pass 

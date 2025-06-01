@@ -37,38 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Глобальные объекты
-cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
-parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
-
-# Инициализация OpenRouter клиента для лунного календаря
-# (Эта конфигурация аналогична той, что используется в astro_bot.py)
-openrouter_client_for_moon_tasks = OpenRouterClient(
-    api_url=config.OPENROUTER_API_URL,
-    api_keys=config.OPENROUTER_API_KEYS,
-    models=config.OPENROUTER_MODELS,
-    model_configs=config.OPENROUTER_MODEL_CONFIGS,
-    model_api_keys=config.OPENROUTER_MODEL_API_KEYS,
-    timeout=60  # Таймаут для запросов от фоновой задачи
-)
-
-# Инициализация сервиса OpenRouter для лунного календаря
-moon_openrouter_service = MoonCalendarOpenRouterService(
-    cache_manager=cache_manager,
-    parser=parser,
-    openrouter_client=openrouter_client_for_moon_tasks,
-    prompts_config=config.OPENROUTER_PROMPTS
-)
-
-moon_calendar_tasks = MoonCalendarTasks(cache_manager, parser, moon_openrouter_service)
-
 # ================= BACKGROUND TASKS =================
-
-async def cleanup_cache_task(cache_manager: CacheManager):
-    """Фоновая задача очистки кэша"""
-    while True:
-        await cache_manager.clear_expired()
-        await asyncio.sleep(config.CACHE_CLEANUP_INTERVAL)
 
 async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
     """Фоновая задача обновления кэша лунного календаря и генерации AI-ответов"""
@@ -85,24 +54,65 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Старт Moon Calendar API Service...")
     
-    # Запускаем фоновую задачу очистки кэша
-    cleanup_task = asyncio.create_task(cleanup_cache_task(cache_manager))
+    # Инициализация зависимостей внутри lifespan
+    cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
+    await cache_manager.connect() # Устанавливаем соединение с Redis
+    
+    parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
+    
+    # Инициализация OpenRouter клиента для лунного календаря
+    openrouter_client_for_moon_tasks = OpenRouterClient(
+        api_url=config.OPENROUTER_API_URL,
+        api_keys=config.OPENROUTER_API_KEYS,
+        models=config.OPENROUTER_MODELS,
+        model_configs=config.OPENROUTER_MODEL_CONFIGS,
+        model_api_keys=config.OPENROUTER_MODEL_API_KEYS,
+        timeout=60  # Таймаут для запросов от фоновой задачи
+    )
+    
+    # Инициализация сервиса OpenRouter для лунного календаря
+    moon_openrouter_service = MoonCalendarOpenRouterService(
+        cache_manager=cache_manager, # Передаем экземпляр cache_manager
+        parser=parser,
+        openrouter_client=openrouter_client_for_moon_tasks,
+        prompts_config=config.OPENROUTER_PROMPTS
+    )
+    
+    moon_calendar_tasks = MoonCalendarTasks(
+        cache_manager=cache_manager, # Передаем экземпляр cache_manager
+        parser=parser,
+        openrouter_service=moon_openrouter_service # Передаем экземпляр сервиса
+    )
     
     # Запускаем фоновую задачу обновления кэша лунного календаря
     update_calendar_task = asyncio.create_task(update_moon_calendar_cache_task(moon_calendar_tasks))
+    
+    # Добавляем cache_manager в state приложения для доступа из роутеров/зависимостей
+    # Это более надежный способ, чем передавать его через конструкторы роутеров, которые создает FastAPI
+    app.state.cache_manager = cache_manager
+    # Добавляем другие зависимости в state, если они могут понадобиться в других частях приложения
+    app.state.parser = parser
+    app.state.openrouter_client_for_moon_tasks = openrouter_client_for_moon_tasks
+    app.state.moon_openrouter_service = moon_openrouter_service
+    app.state.moon_calendar_tasks = moon_calendar_tasks
     
     yield
     
     # Shutdown
     logger.info("Выключение Moon Calendar API Service...")
-    cleanup_task.cancel()
     update_calendar_task.cancel()
     
     try:
-        await cleanup_task
-        await update_calendar_task
+        if not update_calendar_task.done():
+             await update_calendar_task
     except asyncio.CancelledError:
         pass
+    except Exception as e:
+         logger.error(f"Ошибка при отмене задач: {e}", exc_info=True)
+
+    # Закрываем соединение с Redis
+    await cache_manager.close()
+    logger.info("Redis connection closed.")
 
 # Создание FastAPI приложения
 app = FastAPI(

@@ -160,6 +160,9 @@ BACKGROUND_TASKS = {
     "update_cache_interval_minutes": 60
 }
 
+# Redis settings
+REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
 # Функция для получения полного URL API
 def get_api_url(path: str = "") -> str:
     """Получение полного URL API с учетом настроек"""
