@@ -89,6 +89,46 @@ class CacheManager:
         
         logger.info(f"Cache SET for {date_obj}")
     
+    async def add(self, key: str, value: Any, ttl_seconds: int = None) -> bool:
+        """
+        Атомарно добавляет запись только если её нет
+        
+        :param key: Ключ для добавления
+        :param value: Значение для добавления
+        :param ttl_seconds: Время жизни в секундах (если None, используется ttl_minutes)
+        :return: True если запись добавлена, False если ключ уже существует
+        """
+        # Если ключ уже существует и не истек, возвращаем False
+        if key in self._cache:
+            cache_entry = self._cache[key]
+            if not self._is_expired(cache_entry):
+                logger.debug(f"Cache ADD failed: key {key} already exists")
+                return False
+        
+        # Добавляем новую запись
+        ttl = ttl_seconds if ttl_seconds is not None else (self._ttl_minutes * 60)
+        self._cache[key] = {
+            'data': copy.deepcopy(value),
+            'cached_at': datetime.now().isoformat(),
+            'ttl': ttl
+        }
+        logger.debug(f"Cache ADD: key {key} added")
+        return True
+    
+    async def delete(self, key: str) -> bool:
+        """
+        Удаляет запись из кэша
+        
+        :param key: Ключ для удаления
+        :return: True если запись была удалена, False если ключ не существует
+        """
+        if key in self._cache:
+            del self._cache[key]
+            logger.debug(f"Cache DELETE: key {key} deleted")
+            return True
+        logger.debug(f"Cache DELETE: key {key} not found")
+        return False
+    
     async def clear_expired(self) -> None:
         """Очистка устаревших записей"""
         expired_keys = []

@@ -4,6 +4,7 @@
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+import time
 
 from core.cache import CacheManager
 from .parser import MoonCalendarParser
@@ -20,51 +21,75 @@ class MoonCalendarTasks:
         
         :param cache_manager: Менеджер кэша
         :param parser: Парсер лунного календаря
-        :param openrouter_service: Сервис для работы с OpenRouter
+        :param openrouter_service: Сервис для генерации ответов через OpenRouter
         """
         self.cache_manager = cache_manager
         self.parser = parser
         self.openrouter_service = openrouter_service
+        self._task = None
+        self._lock_key = "moon_calendar_task_lock"
+        self._lock_ttl = 60  # Время жизни блокировки в секундах
     
-    async def update_calendar_cache_and_generate_ai_responses(self) -> None:
-        """Обновление кэша лунного календаря (спарсенные данные) и генерация AI-ответов для текущего и следующего дня."""
-        today = date.today()
-        tomorrow = today + timedelta(days=1)
-        dates_to_process = [today, tomorrow]
-
-        logger.info(f"Запуск фоновой задачи обновления кэша и генерации AI-ответов для {', '.join(map(str, dates_to_process))}")
-        
-        for current_date in dates_to_process:
-            try:
-                logger.info(f"Обновление спарсенных данных для {current_date}")
-                parsed_data = await self.parser.parse_calendar_day(current_date)
-                
-                # Сначала сохраняем только спарсенные данные. 
-                # Это важно, т.к. _get_calendar_data в openrouter_service будет брать их из кэша.
-                await self.cache_manager.set(current_date, parsed_data) 
-                logger.info(f"Спарсенные данные для {current_date} сохранены в кэш.")
-
-                # Теперь генерируем и кэшируем AI ответы для этой даты
-                logger.info(f"Генерация и кэширование AI-ответов для {current_date}...")
-                await self.openrouter_service.background_generate_and_cache_ai_responses(current_date)
-                logger.info(f"AI-ответы для {current_date} сгенерированы и кэшированы.")
-
-            except Exception as e:
-                logger.error(f"Ошибка при обработке даты {current_date} в фоновой задаче: {e}", exc_info=True)
-        
-        logger.info(f"Фоновая задача обновления кэша и генерации AI-ответов завершена для {', '.join(map(str, dates_to_process))}")
-    
-    async def run_periodic_update(self, interval_minutes: int) -> None:
+    async def _acquire_lock(self) -> bool:
         """
-        Запуск периодического обновления кэша и AI-ответов
+        Попытка получить блокировку для выполнения задачи
+        
+        :return: True если блокировка получена, False в противном случае
+        """
+        # Используем cache.add, который возвращает False если ключ уже существует
+        lock_id = f"{datetime.now().timestamp()}"
+        return await self.cache_manager.add(self._lock_key, lock_id, self._lock_ttl)
+    
+    async def _release_lock(self):
+        """Освобождение блокировки"""
+        await self.cache_manager.delete(self._lock_key)
+    
+    async def update_calendar_cache_and_generate_ai_responses(self):
+        """
+        Обновление кэша лунного календаря и генерация AI-ответов
+        
+        Обновляет данные для текущего и следующего дня
+        """
+        # Попытка получить блокировку
+        lock_acquired = await self._acquire_lock()
+        if not lock_acquired:
+            logger.info("Другой экземпляр фоновой задачи уже выполняется. Пропускаем запуск.")
+            return
+        
+        try:
+            today = date.today()
+            tomorrow = today + timedelta(days=1)
+            dates = [today, tomorrow]
+            
+            logger.info(f"Запуск фоновой задачи обновления кэша и генерации AI-ответов для {today}, {tomorrow}")
+            
+            for calendar_date in dates:
+                # Обновление спарсенных данных
+                logger.info(f"Обновление спарсенных данных для {calendar_date}")
+                try:
+                    calendar_data = await self.parser.parse_calendar_day(calendar_date)
+                    await self.cache_manager.set(str(calendar_date), calendar_data)
+                    logger.info(f"Спарсенные данные для {calendar_date} сохранены в кэш.")
+                    
+                    # Генерация и кэширование AI-ответов
+                    logger.info(f"Генерация и кэширование AI-ответов для {calendar_date}...")
+                    await self.openrouter_service.background_generate_and_cache_ai_responses(calendar_date)
+                    logger.info(f"AI-ответы для {calendar_date} сгенерированы и кэшированы.")
+                except Exception as e:
+                    logger.error(f"Ошибка при обновлении данных для {calendar_date}: {e}")
+            
+            logger.info(f"Фоновая задача обновления кэша и генерации AI-ответов завершена для {today}, {tomorrow}")
+        finally:
+            # Освобождаем блокировку в любом случае
+            await self._release_lock()
+    
+    async def run_periodic_update(self, interval_minutes: int):
+        """
+        Запуск периодического обновления кэша лунного календаря
         
         :param interval_minutes: Интервал обновления в минутах
         """
+        logger.info(f"Следующее периодическое обновление через {interval_minutes} минут.")
         while True:
-            try:
-                await self.update_calendar_cache_and_generate_ai_responses()
-            except Exception as e:
-                logger.error(f"Ошибка в периодическом обновлении кэша и AI-ответов: {e}", exc_info=True)
-            
-            logger.info(f"Следующее периодическое обновление через {interval_minutes} минут.")
-            await asyncio.sleep(interval_minutes * 60) 
+            await asyncio.sleep(interval_minutes * 60)
+            await self.update_calendar_cache_and_generate_ai_responses() 
