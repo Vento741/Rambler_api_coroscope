@@ -18,7 +18,7 @@ APP_DESCRIPTION = "Асинхронный API сервис для парсинг
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8081"))
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
-WORKERS = int(os.getenv("WORKERS", "1"))
+WORKERS = int(os.getenv("WORKERS", "4"))
 
 # Настройки CORS
 CORS_ORIGINS: List[str] = [
