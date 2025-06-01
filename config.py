@@ -18,7 +18,7 @@ APP_DESCRIPTION = "Асинхронный API сервис для парсинг
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8081"))
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"
-WORKERS = int(os.getenv("WORKERS", "4"))
+WORKERS = int(os.getenv("WORKERS", "1"))
 
 # Настройки CORS
 CORS_ORIGINS: List[str] = [
@@ -157,7 +157,7 @@ TAROT_PROMPTS = {
 
 # Настройки фоновых задач
 BACKGROUND_TASKS = {
-    "update_cache_interval_minutes": 30
+    "update_cache_interval_minutes": 60
 }
 
 # Функция для получения полного URL API
