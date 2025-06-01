@@ -65,15 +65,20 @@ class MoonCalendarTasks:
     
     async def run_periodic_update(self, interval_minutes: int) -> None:
         """
-        Запуск периодического обновления кэша и AI-ответов
+        Запуск периодического обновления кэша и AI-ответов.
+        Первое фактическое обновление в рамках этой функции произойдет ПОСЛЕ первого интервала сна.
+        Для немедленного запуска задачи при старте приложения (до первого интервала),
+        необходимо вызвать self.update_calendar_cache_and_generate_ai_responses() отдельно 
+        перед запуском этой периодической задачи.
         
         :param interval_minutes: Интервал обновления в минутах
         """
+        logger.info(f"Периодическое обновление кэша и AI-ответов настроено. Следующий запуск через {interval_minutes} минут.")
         while True:
+            await asyncio.sleep(interval_minutes * 60) # Сначала ждем
             try:
+                logger.info(f"Начало планового периодического обновления кэша ({interval_minutes} мин).")
                 await self.update_calendar_cache_and_generate_ai_responses()
             except Exception as e:
                 logger.error(f"Ошибка в периодическом обновлении кэша и AI-ответов: {e}", exc_info=True)
-            
-            logger.info(f"Следующее периодическое обновление через {interval_minutes} минут.")
-            await asyncio.sleep(interval_minutes * 60) 
+            logger.info(f"Плановое периодическое обновление завершено. Следующий запуск через {interval_minutes} минут.") 
