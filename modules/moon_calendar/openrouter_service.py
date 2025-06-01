@@ -289,25 +289,36 @@ class MoonCalendarOpenRouterService:
         logger.info(f"[BG_AI_GEN] Запуск генерации AI-ответов для {calendar_date}")
         
         try:
-            # Получаем спарсенные данные календаря (должны быть уже в кэше)
-            calendar_data = await self._get_calendar_data(calendar_date)
-            if not calendar_data:
-                logger.error(f"[BG_AI_GEN] Спарсенные данные для {calendar_date} не найдены в кэше. AI-генерация прервана.")
+            # Получаем спарсенные данные календаря (должны быть уже в кэше из tasks.py,
+            # или _get_calendar_data их спарсит/возьмет из кеша, если tasks.py еще не отработал или кеш устарел)
+            current_parsed_data = await self._get_calendar_data(calendar_date)
+            if not current_parsed_data:
+                logger.error(f"[BG_AI_GEN] Спарсенные данные для {calendar_date} не найдены/не удалось получить. AI-генерация прервана.")
                 return
 
+            # Мы будем модифицировать копию, чтобы не влиять на другие возможные ссылки на current_parsed_data,
+            # и чтобы собрать все AI ответы перед единовременной записью в кеш.
+            # CacheManager.get() уже возвращает deepcopy, но для явности можно оставить.
+            import copy # Убедитесь, что copy импортирован в начале файла, если еще нет
+            data_to_cache_with_ai = copy.deepcopy(current_parsed_data)
+            
+            # Гарантируем наличие ключа для AI-ответов
+            if "openrouter_responses" not in data_to_cache_with_ai:
+                data_to_cache_with_ai["openrouter_responses"] = {}
+
             user_types_to_process = ["free", "premium"]
+            at_least_one_ai_response_generated = False
 
             for user_type in user_types_to_process:
                 logger.info(f"[BG_AI_GEN] Генерация для {calendar_date}, тип: {user_type}")
                 try:
-                    # Проверяем, нет ли уже свежего AI ответа для этого типа (на всякий случай, если задача перезапустилась)
-                    # Это нестрогая проверка, основная логика в get_moon_calendar_response
-                    # if await self._get_cached_response(calendar_date, user_type):
-                    #     logger.info(f"[BG_AI_GEN] AI-ответ для {calendar_date} (тип: {user_type}) уже существует и свежий. Пропускаем.")
-                    #     continue
-                        
+                    # Если мы хотим перезаписывать существующие AI ответы в кеше при каждом запуске фоновой задачи,
+                    # то не нужно проверять их наличие здесь. Если хотим дописывать только отсутствующие - нужна проверка.
+                    # Текущая логика подразумевает перезапись для свежести.
+
                     prompt_config = self._get_prompt_config(user_type)
-                    user_message = self._prepare_user_message(calendar_data, user_type)
+                    # Важно: используем current_parsed_data (неизмененные данные, полученные в начале) для генерации промпта
+                    user_message = self._prepare_user_message(current_parsed_data, user_type)
                     models = self._get_models_for_user_type(user_type)
                     
                     logger.info(f"[BG_AI_GEN] Подготовлен запрос к OpenRouter для {calendar_date}, тип: {user_type}. Доступные модели: {models}")
@@ -337,17 +348,32 @@ class MoonCalendarOpenRouterService:
                                 last_error_details = f"Модель {model_name} вернула пустой ответ."
                         except Exception as e_model:
                             last_error_details = str(e_model)
-                            logger.error(f"[BG_AI_GEN] Ошибка при использовании модели {model_name} для {calendar_date} (тип: {user_type}): {e_model}", exc_info=True)
+                            logger.error(f"[BG_AI_GEN] Ошибка при использовании модели {model_name} для {calendar_date} (тип: {user_type}): {e_model}", exc_info=False) # exc_info=False чтобы не засорять логи, если это частая ошибка модели
                             continue # Пробуем следующую модель
                     
                     if ai_response_text and selected_model:
-                        await self._cache_response(calendar_date, user_type, ai_response_text)
-                        logger.info(f"[BG_AI_GEN] AI-ответ от {selected_model} для {calendar_date} (тип: {user_type}) сохранен в кэш.")
+                        # Добавляем AI ответ в структуру, которую будем кешировать целиком
+                        data_to_cache_with_ai["openrouter_responses"][user_type] = ai_response_text
+                        at_least_one_ai_response_generated = True
+                        logger.info(f"[BG_AI_GEN] AI-ответ от {selected_model} для {calendar_date} (тип: {user_type}) подготовлен к кэшированию.")
                     else:
                         logger.error(f"[BG_AI_GEN] Не удалось получить AI-ответ ни от одной модели для {calendar_date} (тип: {user_type}). Последняя ошибка: {last_error_details}")
+                        # Если для какого-то типа не удалось сгенерировать, возможно, стоит удалить старый ответ из data_to_cache_with_ai, если он там был
+                        if user_type in data_to_cache_with_ai["openrouter_responses"]:
+                            del data_to_cache_with_ai["openrouter_responses"][user_type]
+
 
                 except Exception as e_user_type:
                     logger.error(f"[BG_AI_GEN] Ошибка при генерации AI-ответа для {calendar_date} (тип: {user_type}): {e_user_type}", exc_info=True)
+                    if user_type in data_to_cache_with_ai["openrouter_responses"]:
+                        del data_to_cache_with_ai["openrouter_responses"][user_type]
+            
+            # После цикла по user_type, сохраняем data_to_cache_with_ai ОДИН РАЗ.
+            # Это сохранит исходные спарсенные данные вместе со всеми успешно сгенерированными AI-ответами.
+            # Если какие-то AI-ответы не сгенерировались, их ключи будут отсутствовать в openrouter_responses.
+            # CacheManager.set сам по себе обрабатывает обновление или создание новой записи.
+            await self.cache_manager.set(calendar_date, data_to_cache_with_ai)
+            logger.info(f"[BG_AI_GEN] Данные (спарсенные + AI-ответы) для {calendar_date} сохранены в кэш.")
             
             logger.info(f"[BG_AI_GEN] Завершение генерации AI-ответов для {calendar_date}")
 

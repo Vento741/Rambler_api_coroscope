@@ -25,34 +25,43 @@ class MoonCalendarTasks:
         self.cache_manager = cache_manager
         self.parser = parser
         self.openrouter_service = openrouter_service
+        self._is_updating = False # Флаг для предотвращения одновременного запуска
     
     async def update_calendar_cache_and_generate_ai_responses(self) -> None:
         """Обновление кэша лунного календаря (спарсенные данные) и генерация AI-ответов для текущего и следующего дня."""
-        today = date.today()
-        tomorrow = today + timedelta(days=1)
-        dates_to_process = [today, tomorrow]
+        if self._is_updating:
+            logger.info("Обновление уже выполняется, пропуск этого запуска.")
+            return
 
-        logger.info(f"Запуск фоновой задачи обновления кэша и генерации AI-ответов для {', '.join(map(str, dates_to_process))}")
-        
-        for current_date in dates_to_process:
-            try:
-                logger.info(f"Обновление спарсенных данных для {current_date}")
-                parsed_data = await self.parser.parse_calendar_day(current_date)
-                
-                # Сначала сохраняем только спарсенные данные. 
-                # Это важно, т.к. _get_calendar_data в openrouter_service будет брать их из кэша.
-                await self.cache_manager.set(current_date, parsed_data) 
-                logger.info(f"Спарсенные данные для {current_date} сохранены в кэш.")
+        self._is_updating = True
+        try:
+            today = date.today()
+            tomorrow = today + timedelta(days=1)
+            dates_to_process = [today, tomorrow]
 
-                # Теперь генерируем и кэшируем AI ответы для этой даты
-                logger.info(f"Генерация и кэширование AI-ответов для {current_date}...")
-                await self.openrouter_service.background_generate_and_cache_ai_responses(current_date)
-                logger.info(f"AI-ответы для {current_date} сгенерированы и кэшированы.")
+            logger.info(f"Запуск фоновой задачи обновления кэша и генерации AI-ответов для {', '.join(map(str, dates_to_process))}")
+            
+            for current_date in dates_to_process:
+                try:
+                    logger.info(f"Обновление спарсенных данных для {current_date}")
+                    parsed_data = await self.parser.parse_calendar_day(current_date)
+                    
+                    # Сначала сохраняем только спарсенные данные. 
+                    # Это важно, т.к. _get_calendar_data в openrouter_service будет брать их из кэша.
+                    await self.cache_manager.set(current_date, parsed_data) 
+                    logger.info(f"Спарсенные данные для {current_date} сохранены в кэш.")
 
-            except Exception as e:
-                logger.error(f"Ошибка при обработке даты {current_date} в фоновой задаче: {e}", exc_info=True)
-        
-        logger.info(f"Фоновая задача обновления кэша и генерации AI-ответов завершена для {', '.join(map(str, dates_to_process))}")
+                    # Теперь генерируем и кэшируем AI ответы для этой даты
+                    logger.info(f"Генерация и кэширование AI-ответов для {current_date}...")
+                    await self.openrouter_service.background_generate_and_cache_ai_responses(current_date)
+                    logger.info(f"AI-ответы для {current_date} сгенерированы и кэшированы.")
+
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке даты {current_date} в фоновой задаче: {e}", exc_info=True)
+            
+            logger.info(f"Фоновая задача обновления кэша и генерации AI-ответов завершена для {', '.join(map(str, dates_to_process))}")
+        finally: # Гарантируем сброс флага
+            self._is_updating = False
     
     async def run_periodic_update(self, interval_minutes: int) -> None:
         """
