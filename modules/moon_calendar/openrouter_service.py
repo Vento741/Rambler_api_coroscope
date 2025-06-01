@@ -61,9 +61,16 @@ class MoonCalendarOpenRouterService:
         :param calendar_date: Дата календаря
         :return: Данные лунного календаря
         """
-        # Генерируем ключ кэша для даты
-        cache_key = f"moon_calendar_{calendar_date.isoformat()}"
-        
+        # Проверяем, что calendar_date - это объект типа date
+        if isinstance(calendar_date, str):
+            logger.warning(f"Передана строка вместо объекта date: {calendar_date}. Преобразуем в date.")
+            try:
+                from datetime import datetime
+                calendar_date = datetime.fromisoformat(calendar_date).date()
+            except ValueError as e:
+                logger.error(f"Не удалось преобразовать строку в date: {e}")
+                raise ValueError(f"Неверный формат даты: {calendar_date}")
+                
         # Проверяем кэш
         cached_data = await self.cache_manager.get(calendar_date)
         
@@ -156,6 +163,16 @@ class MoonCalendarOpenRouterService:
         :param user_type: Тип пользователя
         :return: Кэшированный ответ или None
         """
+        # Проверяем, что calendar_date - это объект типа date
+        if isinstance(calendar_date, str):
+            logger.warning(f"Передана строка вместо объекта date: {calendar_date}. Преобразуем в date.")
+            try:
+                from datetime import datetime
+                calendar_date = datetime.fromisoformat(calendar_date).date()
+            except ValueError as e:
+                logger.error(f"Не удалось преобразовать строку в date: {e}")
+                return None
+                
         # Проверяем кэш для конкретной даты календаря
         cached_data = await self.cache_manager.get(calendar_date)
         
@@ -181,6 +198,16 @@ class MoonCalendarOpenRouterService:
         :param user_type: Тип пользователя
         :param response: Ответ OpenRouter
         """
+        # Проверяем, что calendar_date - это объект типа date
+        if isinstance(calendar_date, str):
+            logger.warning(f"Передана строка вместо объекта date: {calendar_date}. Преобразуем в date.")
+            try:
+                from datetime import datetime
+                calendar_date = datetime.fromisoformat(calendar_date).date()
+            except ValueError as e:
+                logger.error(f"Не удалось преобразовать строку в date: {e}")
+                return
+                
         # Получаем текущие данные календаря из кэша
         cached_data = await self.cache_manager.get(calendar_date) or {}
         
@@ -243,6 +270,19 @@ class MoonCalendarOpenRouterService:
         :return: Ответ API
         """
         try:
+            # Проверяем, что calendar_date - это объект типа date
+            if isinstance(calendar_date, str):
+                logger.warning(f"Передана строка вместо объекта date: {calendar_date}. Преобразуем в date.")
+                try:
+                    from datetime import datetime
+                    calendar_date = datetime.fromisoformat(calendar_date).date()
+                except ValueError as e:
+                    logger.error(f"Не удалось преобразовать строку в date: {e}")
+                    return ApiResponse(
+                        success=False,
+                        error=f"Неверный формат даты: {calendar_date}"
+                    )
+                    
             # Проверяем наличие кэшированного AI-ответа
             cached_ai_response = await self._get_cached_response(calendar_date, user_type)
             
@@ -286,6 +326,16 @@ class MoonCalendarOpenRouterService:
         Этот метод вызывается из MoonCalendarTasks.
         Предполагается, что спарсенные данные для calendar_date уже лежат в кэше.
         """
+        # Проверяем, что calendar_date - это объект типа date
+        if isinstance(calendar_date, str):
+            logger.warning(f"[BG_AI_GEN] Передана строка вместо объекта date: {calendar_date}. Преобразуем в date.")
+            try:
+                from datetime import datetime
+                calendar_date = datetime.fromisoformat(calendar_date).date()
+            except ValueError as e:
+                logger.error(f"[BG_AI_GEN] Не удалось преобразовать строку в date: {e}")
+                return
+                
         logger.info(f"[BG_AI_GEN] Запуск генерации AI-ответов для {calendar_date}")
         
         try:

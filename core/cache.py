@@ -6,15 +6,17 @@ from typing import Dict, Any, Optional
 import logging
 import copy
 
+from config import BACKGROUND_TASKS
+
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
 class CacheManager:
     """Асинхронный менеджер кэша с TTL"""
     
-    def __init__(self, ttl_minutes: int = 60):  # Увеличиваем время жизни кеша до 60 минут
+    def __init__(self, update_cache_interval_minutes: int = BACKGROUND_TASKS["update_cache_interval_minutes"]):  # Увеличиваем время жизни кеша до 60 минут
         self._cache: Dict[str, Dict] = {}
-        self._ttl_minutes = ttl_minutes
+        self._ttl_minutes = update_cache_interval_minutes
         
     def _generate_key(self, date_obj: date) -> str:
         """Генерация ключа для кэша"""
@@ -27,23 +29,41 @@ class CacheManager:
     
     async def get(self, date_obj: date) -> Optional[Dict]:
         """Получение данных из кэша"""
+        # Проверяем, что date_obj - это объект типа date
+        if isinstance(date_obj, str):
+            logger.warning(f"Передана строка вместо объекта date: {date_obj}. Преобразуем в date.")
+            try:
+                date_obj = datetime.fromisoformat(date_obj).date()
+            except ValueError as e:
+                logger.error(f"Не удалось преобразовать строку в date: {e}")
+                return None
+                
         key = self._generate_key(date_obj)
         
         if key in self._cache:
             cache_entry = self._cache[key]
             if not self._is_expired(cache_entry):
-                logger.info(f"Cache HIT for {date_obj}")
+                logger.info(f"Кеш: {date_obj} найден")
                 return copy.deepcopy(cache_entry['data'])  # Возвращаем копию данных
             else:
                 # Удаляем устаревшие данные
                 del self._cache[key]
-                logger.info(f"Cache EXPIRED for {date_obj}")
+                logger.info(f"Кеш: {date_obj} устарел")
         
-        logger.info(f"Cache MISS for {date_obj}")
+        logger.info(f"Кеш: {date_obj} не найден")
         return None
     
     async def set(self, date_obj: date, data: Dict) -> None:
         """Сохранение данных в кэш"""
+        # Проверяем, что date_obj - это объект типа date
+        if isinstance(date_obj, str):
+            logger.warning(f"Передана строка вместо объекта date: {date_obj}. Преобразуем в date.")
+            try:
+                date_obj = datetime.fromisoformat(date_obj).date()
+            except ValueError as e:
+                logger.error(f"Не удалось преобразовать строку в date: {e}")
+                return
+                
         key = self._generate_key(date_obj)
         
         # Проверяем, есть ли уже данные в кеше
@@ -87,7 +107,7 @@ class CacheManager:
                 'cached_at': datetime.now().isoformat()
             }
         
-        logger.info(f"Cache SET for {date_obj}")
+        logger.info(f"Кеш: {date_obj} установлен")
     
     async def add(self, key: str, value: Any, ttl_seconds: int = None) -> bool:
         """
@@ -102,7 +122,7 @@ class CacheManager:
         if key in self._cache:
             cache_entry = self._cache[key]
             if not self._is_expired(cache_entry):
-                logger.debug(f"Cache ADD failed: key {key} already exists")
+                logger.debug(f"Кеш: key {key} уже существует")
                 return False
         
         # Добавляем новую запись
@@ -112,7 +132,7 @@ class CacheManager:
             'cached_at': datetime.now().isoformat(),
             'ttl': ttl
         }
-        logger.debug(f"Cache ADD: key {key} added")
+        logger.debug(f"Кеш: key {key} добавлен")
         return True
     
     async def delete(self, key: str) -> bool:
@@ -124,9 +144,9 @@ class CacheManager:
         """
         if key in self._cache:
             del self._cache[key]
-            logger.debug(f"Cache DELETE: key {key} deleted")
+            logger.debug(f"Кеш: key {key} удален")
             return True
-        logger.debug(f"Cache DELETE: key {key} not found")
+        logger.debug(f"Кеш: key {key} не найден")
         return False
     
     async def clear_expired(self) -> None:
@@ -140,4 +160,4 @@ class CacheManager:
             del self._cache[key]
         
         if expired_keys:
-            logger.info(f"Cleared {len(expired_keys)} expired cache entries") 
+            logger.info(f"Очищено {len(expired_keys)} устаревших записей в кэше") 

@@ -68,7 +68,8 @@ class MoonCalendarTasks:
                 logger.info(f"Обновление спарсенных данных для {calendar_date}")
                 try:
                     calendar_data = await self.parser.parse_calendar_day(calendar_date)
-                    await self.cache_manager.set(str(calendar_date), calendar_data)
+                    # Используем str(calendar_date) только как ключ для кэша, но не для других операций
+                    await self.cache_manager.set(calendar_date, calendar_data)
                     logger.info(f"Спарсенные данные для {calendar_date} сохранены в кэш.")
                     
                     # Генерация и кэширование AI-ответов
