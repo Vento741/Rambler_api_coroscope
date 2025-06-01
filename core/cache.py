@@ -37,7 +37,7 @@ class CacheManager:
                 return copy.deepcopy(cache_entry['data'])  # Возвращаем копию данных
             else:
                 # Удаляем устаревшие данные
-                logger.warning(f"Кэш истек для ключа: {key} (date: {date_obj}). Удаляем сейчас.")
+                logger.warning(f"Кэш истек для ключа: {key} (date: {date_obj}). Удаляем сейчас. Размер кеша до удаления: {len(self._cache)}")
                 del self._cache[key]
                 logger.info(f"После удаления устаревших данных для {key}. Текущий размер кэша: {len(self._cache)}")
         
@@ -98,11 +98,13 @@ class CacheManager:
         logger.debug(f"Запуск clear_expired. Текущий размер кэша: {len(self._cache)}")
         for key, cache_entry in list(self._cache.items()): # Iterate over a copy of items for safe deletion
             if self._is_expired(cache_entry):
-                logger.info(f"clear_expired: Найден устаревший ключ {key} (cached_at: {cache_entry['cached_at']})")
+                logger.info(f"clear_expired: Найден устаревший ключ {key} (cached_at: {cache_entry['cached_at']}). Размер кеша до удаления: {len(self._cache)}")
                 expired_keys.append(key)
         
-        for key in expired_keys:
-            del self._cache[key]
+        for key_to_delete in expired_keys: # Renamed variable to avoid confusion
+            logger.info(f"clear_expired: Удаление ключа {key_to_delete}. Размер кеша до удаления этого ключа: {len(self._cache)}")
+            del self._cache[key_to_delete] # Make sure this is self._cache
+            logger.info(f"clear_expired: Ключ {key_to_delete} удален. Текущий размер кэша: {len(self._cache)}")
         
         if expired_keys:
             logger.info(f"Очищено {len(expired_keys)} устаревших записей кэша. Текущий размер кэша: {len(self._cache)}")
