@@ -20,8 +20,6 @@ class CalendarDayResponse(BaseModel):
 
 class ApiResponse(BaseModel):
     """Общая модель ответа API"""
-    success: bool
-    data: Optional[Union[CalendarDayResponse, str]] = None
-    error: Optional[str] = None
-    cached: bool = False
-    model: Optional[str] = None
+    date: str  # ISO формат даты
+    response: Optional[str] = None  # Текст ответа AI
+    error: Optional[str] = None  # Сообщение об ошибке, если есть

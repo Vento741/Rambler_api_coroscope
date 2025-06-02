@@ -85,13 +85,26 @@ class MoonCalendarTasks:
         # Бесконечный цикл обновления с защитой от исключений
         while True:
             try:
-                # Сначала ждем указанный интервал
-                await asyncio.sleep(interval_minutes * 60)
+                # Проверяем наличие данных в кэше для текущего дня
+                today = date.today()
+                cached_data = await self.cache_manager.get(today)
                 
-                # Затем выполняем обновление
-                logger.info(f"Начало планового периодического обновления кэша ({interval_minutes} мин).")
-                await self.update_calendar_cache_and_generate_ai_responses()
-                logger.info(f"Плановое периодическое обновление завершено. Следующий запуск через {interval_minutes} минут.")
+                if cached_data is None:
+                    # Если данных для текущего дня нет в кэше, запускаем обновление немедленно
+                    logger.warning(f"Данные для текущего дня ({today}) отсутствуют в кэше. Запускаем обновление немедленно.")
+                    await self.update_calendar_cache_and_generate_ai_responses()
+                    logger.info(f"Внеплановое обновление завершено. Следующее плановое обновление через {interval_minutes} минут.")
+                    # Сбрасываем счетчик времени после внепланового обновления
+                    await asyncio.sleep(interval_minutes * 60)
+                else:
+                    # Если данные есть, ждем до следующего планового обновления
+                    await asyncio.sleep(interval_minutes * 60)
+                    
+                    # Затем выполняем плановое обновление
+                    logger.info(f"Начало планового периодического обновления кэша ({interval_minutes} мин).")
+                    await self.update_calendar_cache_and_generate_ai_responses()
+                    logger.info(f"Плановое периодическое обновление завершено. Следующий запуск через {interval_minutes} минут.")
+                
             except asyncio.CancelledError:
                 # Позволяем задаче корректно завершиться при отмене
                 logger.info("Периодическое обновление отменено.")
@@ -99,4 +112,6 @@ class MoonCalendarTasks:
             except Exception as e:
                 # Логируем ошибку, но продолжаем цикл
                 logger.error(f"Критическая ошибка в периодическом обновлении кэша и AI-ответов: {e}", exc_info=True)
-                logger.info(f"Периодическое обновление продолжит работу. Следующая попытка через {interval_minutes} минут.") 
+                logger.info(f"Периодическое обновление продолжит работу. Следующая попытка через {interval_minutes} минут.")
+                # Ждем до следующей попытки
+                await asyncio.sleep(interval_minutes * 60) 

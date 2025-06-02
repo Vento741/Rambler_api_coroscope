@@ -6,15 +6,16 @@ import logging
 import random
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
+import asyncio
 
 from fastapi import HTTPException
 
 from core.exceptions import NetworkException
 from core.openrouter_client import OpenRouterClient
 from core.cache import CacheManager
-from .models import ApiResponse, TarotReading, TarotCardPosition
+from .models import ApiResponse, TarotReading, TarotCardPosition, TarotSpread, TarotCard
 from .data import get_all_cards, get_card_by_id, get_all_spreads, get_spread_by_id
-from .prompts import get_spread_prompt
+from .prompts import get_spread_prompt, TAROT_SPREAD_PROMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +146,25 @@ class TarotOpenRouterService:
         
         return message
     
-    async def get_tarot_reading(self, spread_id: int, question: Optional[str], user_type: str) -> ApiResponse:
+    async def get_tarot_reading(
+        self,
+        spread_id: int,
+        question: Optional[str] = None,
+        user_type: str = "free",
+        fixed_cards: Optional[List[Dict[str, Any]]] = None
+    ) -> ApiResponse:
         """
         Получение гадания на Таро
         
-        :param spread_id: ID расклада
-        :param question: Вопрос для гадания (опционально)
-        :param user_type: Тип пользователя (free/premium)
-        :return: Ответ API
+        Args:
+            spread_id: ID расклада
+            question: Вопрос для гадания
+            user_type: Тип пользователя (free/premium)
+            fixed_cards: Список карт, которые должны быть в раскладе 
+                         [{"card_id": id, "is_reversed": bool}, ...]
+        
+        Returns:
+            ApiResponse: Ответ с данными гадания
         """
         try:
             # Проверяем существование расклада
@@ -163,105 +175,195 @@ class TarotOpenRouterService:
                     error=f"Расклад с ID {spread_id} не найден"
                 )
             
-            # Вытягиваем карты (всегда новые, так как результаты не кешируются)
-            drawn_cards = self._draw_cards(spread_id)
+            # Проверяем тип пользователя
+            if user_type not in ["free", "premium"]:
+                return ApiResponse(
+                    success=False,
+                    error=f"Неверный тип пользователя. Допустимые значения: free, premium"
+                )
             
-            # Получаем конфигурацию промпта
-            prompt_config = self._get_prompt_config(user_type)
+            # Формируем кэш-ключ
+            cache_key = f"tarot_reading_{spread_id}_{user_type}"
+            if question:
+                cache_key += f"_{hash(question)}"
+            if fixed_cards:
+                # Если указаны фиксированные карты, включаем их в кэш-ключ
+                fixed_cards_str = "_".join([f"{c['card_id']}_{c['is_reversed']}" for c in fixed_cards])
+                cache_key += f"_{fixed_cards_str}"
             
-            # Подготавливаем сообщение пользователя
-            user_message = self._prepare_user_message(spread_id, drawn_cards, question, user_type)
+            # Проверяем кэш
+            cached_response = await self.cache_manager.get(cache_key)
+            if cached_response:
+                # Возвращаем кэшированный ответ
+                cached_response["cached"] = True
+                return ApiResponse(**cached_response)
             
-            # Получаем список моделей для типа пользователя
-            models = self._get_models_for_user_type(user_type)
+            # Получаем все карты
+            all_cards = get_all_cards()
+            if not all_cards:
+                return ApiResponse(
+                    success=False,
+                    error="Не удалось получить список карт Таро"
+                )
             
-            # Логируем информацию о запросе
-            logger.info(f"Подготовлен запрос к OpenRouter для расклада {spread['name']}")
-            logger.info(f"Доступные модели: {models}")
+            # Выбираем карты для расклада
+            cards_for_reading = []
             
-            # Формируем данные о картах для включения в ответ
-            cards_data = []
-            for i, (card, is_reversed) in enumerate(drawn_cards):
-                position = spread["positions"][i]
-                cards_data.append({
-                    "position": position["position"],
-                    "position_name": position["name"],
-                    "position_description": position["description"],
+            # Если есть фиксированные карты, используем их
+            if fixed_cards:
+                for fixed_card_data in fixed_cards:
+                    card_id = fixed_card_data["card_id"]
+                    is_reversed = fixed_card_data["is_reversed"]
+                    
+                    card = get_card_by_id(card_id)
+                    if not card:
+                        return ApiResponse(
+                            success=False,
+                            error=f"Карта с ID {card_id} не найдена"
+                        )
+                    
+                    cards_for_reading.append({
+                        "card": card,
+                        "is_reversed": is_reversed
+                    })
+            
+            # Добираем оставшиеся карты случайным образом
+            remaining_cards_count = spread["card_count"] - len(cards_for_reading)
+            if remaining_cards_count > 0:
+                # Создаем копию списка карт
+                available_cards = all_cards.copy()
+                
+                # Исключаем карты, которые уже выбраны как фиксированные
+                if fixed_cards:
+                    fixed_card_ids = [card_data["card_id"] for card_data in fixed_cards]
+                    available_cards = [card for card in available_cards if card["id"] not in fixed_card_ids]
+                
+                # Проверяем, достаточно ли осталось карт
+                if len(available_cards) < remaining_cards_count:
+                    return ApiResponse(
+                        success=False,
+                        error=f"Недостаточно карт для расклада. Требуется {remaining_cards_count}, доступно {len(available_cards)}"
+                    )
+                
+                # Выбираем случайные карты
+                selected_cards = random.sample(available_cards, remaining_cards_count)
+                
+                for card in selected_cards:
+                    # Определяем случайно положение карты (прямое или перевернутое)
+                    is_reversed = random.choice([True, False])
+                    cards_for_reading.append({
+                        "card": card,
+                        "is_reversed": is_reversed
+                    })
+            
+            # Формируем данные для отправки в промпт
+            cards_with_positions = []
+            
+            for i, card_data in enumerate(cards_for_reading):
+                if i < len(spread["positions"]):
+                    position = spread["positions"][i]
+                else:
+                    # Если позиций меньше, чем карт (что странно), создаем дефолтную позицию
+                    position = {
+                        "name": f"Позиция {i+1}",
+                        "description": f"Позиция {i+1} в раскладе"
+                    }
+                
+                card = card_data["card"]
+                is_reversed = card_data["is_reversed"]
+                
+                cards_with_positions.append({
                     "card_id": card["id"],
                     "card_name": card["name"],
+                    "card_arcana": card["arcana"],
+                    "card_suit": card.get("suit", ""),
+                    "card_keywords": card["keywords_reversed"] if is_reversed else card["keywords_upright"],
+                    "card_meaning": card["meaning_reversed"] if is_reversed else card["meaning_upright"],
                     "is_reversed": is_reversed,
-                    "card_image_url": card["image_url"]
+                    "position": i + 1,
+                    "position_name": position["name"],
+                    "position_description": position["description"],
+                    "card_image_url": card.get("image_url", "")  # URL изображения карты, если есть
                 })
             
-            # Пробуем каждую модель по порядку
-            last_error = None
-            for model in models:
-                try:
-                    logger.info(f"Пробуем модель: {model}")
-                    
-                    # Генерируем ответ через OpenRouter с указанной моделью
-                    response = await self.openrouter_client.generate_text(
-                        system_message=prompt_config["system_message"],
-                        user_message=user_message,
-                        max_tokens=prompt_config["max_tokens"],
-                        temperature=prompt_config["temperature"],
-                        model=model
-                    )
-                    
-                    # Проверка на пустой ответ
-                    if not response or not response.strip():
-                        logger.warning(f"Получен пустой ответ от модели {model}, пробуем следующую")
-                        continue
-                    
-                    # Ответ успешно получен
-                    logger.info(f"Успешно получен ответ от модели {model}")
-                    
-                    # Формируем полный ответ с данными о раскладе и интерпретацией
-                    complete_response = {
-                        "spread": spread,
-                        "cards": cards_data,
-                        "interpretation": response,
-                        "created_at": datetime.now().isoformat(),
-                        "question": question if question else "Общее гадание"
-                    }
-                    
-                    # Возвращаем ответ
-                    return ApiResponse(
-                        success=True,
-                        data=complete_response,
-                        model=model
-                    )
-
-                except Exception as e:
-                    last_error = e
-                    logger.error(f"Ошибка при использовании модели {model}: {e}")
-                    continue
+            # Получаем соответствующий промпт
+            prompt_templates = TAROT_SPREAD_PROMPTS.get(spread_id)
+            if not prompt_templates:
+                return ApiResponse(
+                    success=False,
+                    error=f"Промпт для расклада с ID {spread_id} не найден"
+                )
             
-            # Если ни одна модель не сработала, возвращаем ошибку
-            if last_error:
-                if isinstance(last_error, NetworkException):
-                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка: {str(last_error)}"
-                else:
-                    error_message = f"Не удалось получить ответ ни от одной модели. Последняя ошибка ({type(last_error).__name__}): {str(last_error)}"
+            # Выбираем промпт в зависимости от типа пользователя
+            prompt_template = prompt_templates.get(user_type)
+            if not prompt_template:
+                return ApiResponse(
+                    success=False,
+                    error=f"Промпт для типа пользователя {user_type} не найден"
+                )
+            
+            # Подготавливаем данные для промпта
+            prompt_data = {
+                "spread_name": spread["name"],
+                "spread_description": spread["description"],
+                "question": question if question else "Общее гадание",
+                "cards": cards_with_positions
+            }
+            
+            # Формируем промпт
+            prompt = prompt_template.format(**prompt_data)
+            
+            # Отправляем запрос к OpenRouter
+            result = await self.openrouter_client.chat_completion(
+                messages=[
+                    {"role": "system", "content": "Вы - опытный таролог, предоставляющий глубокие интерпретации раскладов Таро."},
+                    {"role": "user", "content": prompt}
+                ],
+                model=self.prompts_config["TAROT_MODEL"]
+            )
+            
+            # Формируем ответ
+            if result.get("success", False):
+                interpretation = result.get("response", "")
+                
+                # Формируем данные для ответа
+                response_data = {
+                    "spread": spread,
+                    "cards": cards_with_positions,
+                    "interpretation": interpretation,
+                    "question": question if question else "Общее гадание",
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                # Сохраняем в кэш
+                await self.cache_manager.set(
+                    key=cache_key,
+                    value={
+                        "success": True,
+                        "data": response_data,
+                        "error": None,
+                        "model": self.prompts_config["TAROT_MODEL"]
+                    },
+                    ttl_minutes=self.prompts_config.get("TAROT_CACHE_TTL", 60)
+                )
+                
+                # Возвращаем ответ
+                return ApiResponse(
+                    success=True,
+                    data=response_data,
+                    model=self.prompts_config["TAROT_MODEL"],
+                    cached=False
+                )
             else:
-                error_message = "Все модели вернули пустой ответ."
-            
-            logger.error(f"Финальная ошибка после перебора всех моделей: {error_message}")
-            
-            return ApiResponse(
-                success=False,
-                error=error_message
-            )
-            
-        except HTTPException as e:
-            logger.error(f"Ошибка HTTP: {e.detail}")
-            return ApiResponse(
-                success=False,
-                error=f"Ошибка сервера: {e.detail}"
-            )
+                error_message = result.get("error", "Неизвестная ошибка при получении интерпретации")
+                return ApiResponse(
+                    success=False,
+                    error=error_message
+                )
+        
         except Exception as e:
-            logger.error(f"Неожиданная ошибка при обработке запроса: {e}", exc_info=True)
+            logger.exception(f"Ошибка при получении гадания на Таро: {str(e)}")
             return ApiResponse(
                 success=False,
-                error=f"Внутренняя ошибка сервера: {str(e)}"
+                error=f"Ошибка при получении гадания на Таро: {str(e)}"
             ) 

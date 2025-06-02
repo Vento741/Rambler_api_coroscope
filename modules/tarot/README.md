@@ -1,132 +1,145 @@
-# Модуль Таро
+# Модуль для генерации PDF с результатами гадания на Таро
 
-Модуль Таро предоставляет функциональность для проведения гаданий на картах Таро с использованием OpenRouter API для генерации интерпретаций.
+Этот модуль предоставляет функциональность для создания PDF-документов с результатами гадания на картах Таро.
 
-## Основные компоненты
+## Возможности
 
-- **models.py** - Определяет модели данных для карт Таро, раскладов и результатов гаданий
-- **data.py** - Содержит базу данных карт Таро (Старшие и Младшие Арканы) и доступных раскладов
-- **openrouter_service.py** - Реализует сервис для взаимодействия с OpenRouter API, включая логику выбора карт и формирования запросов
-- **prompts.py** - Содержит специализированные промпты для различных раскладов и типов пользователей
+- Генерация PDF с результатами гадания на Таро
+- Поддержка различных раскладов карт
+- Отображение изображений карт
+- Поддержка перевернутых карт
+- Интерпретация расклада
+- Поддержка кириллицы
 
-## API эндпоинты
+## Установка зависимостей
 
-API эндпоинты для работы с модулем Таро определены в файле `api/v1/tarot.py` и включают:
+```bash
+pip install reportlab pillow aiohttp
+```
 
-1. `GET /api/v1/tarot/cards` - Получение списка всех карт Таро
-2. `GET /api/v1/tarot/cards/{card_id}` - Получение информации о конкретной карте
-3. `GET /api/v1/tarot/spreads` - Получение списка доступных раскладов
-4. `GET /api/v1/tarot/spreads/{spread_id}` - Получение информации о конкретном раскладе
-5. `POST /api/v1/tarot/reading` - Выполнение гадания на картах Таро (POST метод)
-6. `GET /api/v1/tarot/reading` - Выполнение гадания на картах Таро (GET метод)
-7. `GET /api/v1/tarot/card-image/{card_id}` - Получение изображения карты Таро
-8. `GET /api/v1/tarot/collage` - Генерация коллажа из карт Таро для расклада
+## Структура модуля
 
-## Особенности реализации
-
-### Карты Таро
-
-База данных карт Таро включает:
-- 22 карты Старших Арканов (от Шута до Мира)
-- 56 карт Младших Арканов, разделенных на 4 масти:
-  - Жезлы (14 карт)
-  - Кубки (14 карт)
-  - Мечи (14 карт)
-  - Пентакли (14 карт)
-
-Для каждой карты предоставляется информация о её значении в прямом и перевернутом положении, ключевые слова, описание и URL изображения.
-
-### Расклады
-
-Доступны следующие расклады:
-1. **Расклад на один день** - Простой расклад из одной карты
-2. **Расклад на три карты** - Классический расклад "прошлое-настоящее-будущее"
-3. **Кельтский крест** - Детальный расклад из 10 карт
-4. **Расклад на отношения** - Специализированный расклад для анализа отношений
-5. **Расклад на желание** - Расклад для анализа шансов на исполнение желания
-
-### Генерация интерпретаций
-
-Интерпретации раскладов генерируются с использованием OpenRouter API. Промпты для генерации адаптированы под каждый тип расклада и категорию пользователя:
-- **free** - базовая интерпретация с общими выводами
-- **premium** - детальная интерпретация с глубоким анализом и персонализированными рекомендациями
-
-### Особенности работы с изображениями
-
-Модуль поддерживает работу с изображениями карт Таро:
-- Получение отдельных изображений карт (с возможностью отображения в перевернутом виде)
-- Генерация коллажей для различных типов раскладов с предустановленными шаблонами
+- `pdf_generator.py` - Основной класс для генерации PDF
+- `service.py` - Сервис для работы с PDF-генератором
+- `models.py` - Модели данных для работы с Таро
+- `routes.py` - API-маршруты для работы с PDF-генератором
+- `utils.py` - Вспомогательные функции
+- `example_data.py` - Пример данных для тестирования
+- `test_pdf_generator.py` - Тест для проверки работы PDF-генератора
 
 ## Использование
 
-### Пример запроса для получения гадания
+### Генерация PDF через API
 
 ```python
-import requests
+import aiohttp
 import json
 
-# Параметры запроса
-params = {
-    "spread_id": 2,  # Расклад на три карты
-    "question": "Что меня ждет в ближайшем будущем?",
-    "user_type": "premium"  # или "free"
-}
-
-# Выполнение запроса
-response = requests.post(
-    "https://api.example.com/api/v1/tarot/reading",
-    json=params
-)
-
-# Обработка ответа
-if response.status_code == 200:
-    result = response.json()
-    
-    # Получение интерпретации
-    interpretation = result["data"]["interpretation"]
-    print(interpretation)
-    
-    # Получение данных о картах для отображения
-    cards = result["data"]["cards"]
-    
-    # Создание коллажа
-    card_urls = [card["card_image_url"] for card in cards]
-    positions = [card["position_name"] for card in cards]
-    
-    collage_params = {
-        "card_urls": card_urls,
-        "positions": positions,
-        "title": "Расклад на будущее",
-        "spread_type": "three_cards"
+async def generate_pdf():
+    # Данные для гадания
+    reading_data = {
+        "spread_name": "Кельтский крест",
+        "question": "Какие изменения ждут меня в ближайшем будущем?",
+        "cards": [
+            {
+                "card_name": "Маг",
+                "position_name": "Настоящее положение",
+                "card_image_url": "https://www.trustedtarot.com/img/cards/the-magician.png",
+                "is_reversed": False
+            },
+            # ... другие карты
+        ],
+        "interpretation": "Интерпретация расклада..."
     }
     
-    collage_response = requests.get(
-        "https://api.example.com/api/v1/tarot/collage",
-        params=collage_params
-    )
-    
-    # Сохранение коллажа
-    if collage_response.status_code == 200:
-        with open("tarot_reading.jpg", "wb") as f:
-            f.write(collage_response.content)
+    # Отправляем запрос на API
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "http://localhost:8000/tarot/generate-pdf",
+            json={"reading": reading_data}
+        ) as response:
+            if response.status == 200:
+                result = await response.json()
+                if result["success"]:
+                    # Скачиваем PDF
+                    async with session.get(
+                        f"http://localhost:8000/tarot/download-pdf/{result['filename']}"
+                    ) as pdf_response:
+                        if pdf_response.status == 200:
+                            # Сохраняем PDF
+                            with open("tarot_reading.pdf", "wb") as f:
+                                f.write(await pdf_response.read())
+                            print("PDF успешно сохранен")
+                        else:
+                            print(f"Ошибка при скачивании PDF: {pdf_response.status}")
+                else:
+                    print(f"Ошибка при генерации PDF: {result['error']}")
+            else:
+                print(f"Ошибка запроса: {response.status}")
 ```
 
-## Документация
+### Прямое использование генератора PDF
 
-Полная документация по использованию модуля Таро доступна в следующих файлах:
-- [API-инструкция](../../docs/tarot_api_guide.md) - подробное описание всех эндпоинтов и примеры использования
-- [Команды бота](../../docs/tarot_bot_commands.md) - рекомендуемые команды для интеграции с Telegram-ботом
+```python
+import asyncio
+from modules.tarot.pdf_generator import TarotPDFGenerator
+from modules.tarot.example_data import get_example_reading_data
 
-## Ограничения
+async def generate_pdf():
+    # Получаем тестовые данные
+    reading_data = get_example_reading_data()
+    
+    # Создаем генератор PDF
+    pdf_generator = TarotPDFGenerator()
+    
+    # Генерируем PDF
+    pdf_data = await pdf_generator.generate_reading_pdf(reading_data)
+    
+    if pdf_data:
+        # Сохраняем PDF в файл
+        with open("tarot_reading.pdf", "wb") as f:
+            f.write(pdf_data)
+        print("PDF успешно сгенерирован и сохранен")
+    else:
+        print("Не удалось сгенерировать PDF")
 
-- Free-пользователи ограничены 1 гаданием в день
-- Premium-пользователи имеют ограничение на N гаданий в час
+# Запускаем функцию
+asyncio.run(generate_pdf())
+```
 
-Логика ограничений должна быть реализована на стороне клиента (например, в Telegram-боте).
+## Формат данных
 
-## Зависимости
+Для генерации PDF требуется следующий формат данных:
 
-Для работы с изображениями требуются следующие библиотеки:
-- Pillow (PIL) - для обработки изображений
-- aiohttp - для асинхронной загрузки изображений
-- requests - для загрузки изображений в синхронном режиме 
+```json
+{
+    "spread_name": "Название расклада",
+    "question": "Вопрос для гадания",
+    "timestamp": "2023-11-01T12:00:00",  // Опционально, ISO формат
+    "cards": [
+        {
+            "card_name": "Название карты",
+            "position_name": "Название позиции",
+            "position_description": "Описание позиции",  // Опционально
+            "card_image_url": "URL изображения карты",
+            "is_reversed": false  // Признак перевернутой карты
+        },
+        // ... другие карты
+    ],
+    "interpretation": "Интерпретация расклада"
+}
+```
+
+## Тестирование
+
+Для тестирования генератора PDF можно использовать скрипт `test_pdf_generator.py`:
+
+```bash
+cd modules/tarot
+python test_pdf_generator.py
+```
+
+## Примечания
+
+- Для корректного отображения кириллицы необходимо наличие шрифта DejaVuSans
+- При отсутствии шрифта DejaVuSans будет использован стандартный шрифт Helvetica 

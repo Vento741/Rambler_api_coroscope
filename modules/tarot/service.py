@@ -1,55 +1,57 @@
 """
-Сервис таро
+Сервис для работы с Таро
 """
-from datetime import date
 import logging
+import asyncio
+from typing import Dict, Any, Optional
+from datetime import datetime
 
-from fastapi import HTTPException
-
-from core.cache import CacheManager
-from .models import ApiResponse, TarotReading
-from .parser import TarotParser
+from .pdf_generator import TarotPDFGenerator
 
 logger = logging.getLogger(__name__)
 
 class TarotService:
-    """Сервис для работы с таро"""
+    """
+    Сервис для работы с Таро, включая генерацию PDF с результатами гадания
+    """
     
-    def __init__(self, cache_manager: CacheManager, parser: TarotParser):
-        self.cache_manager = cache_manager
-        self.parser = parser
+    def __init__(self):
+        """
+        Инициализация сервиса
+        """
+        self.pdf_generator = TarotPDFGenerator()
     
-    async def get_reading_for_date(self, reading_date: date) -> ApiResponse:
-        """Получение расклада таро на конкретную дату"""
+    async def generate_reading_pdf(self, reading_data: Dict[str, Any]) -> Optional[bytes]:
+        """
+        Генерирует PDF с результатами гадания
+        
+        Args:
+            reading_data: Данные гадания
+            
+        Returns:
+            Байты PDF-файла или None в случае ошибки
+        """
         try:
-            # Проверяем кэш
-            cached_data = await self.cache_manager.get(reading_date)
+            # Проверяем наличие необходимых полей
+            required_fields = ['spread_name', 'question', 'cards', 'interpretation']
+            for field in required_fields:
+                if field not in reading_data:
+                    logger.error(f"Отсутствует обязательное поле '{field}' в данных гадания")
+                    return None
             
-            if cached_data:
-                return ApiResponse(
-                    success=True,
-                    data=TarotReading(**cached_data),
-                    cached=True
-                )
+            # Проверяем наличие timestamp или добавляем текущее время
+            if 'timestamp' not in reading_data:
+                reading_data['timestamp'] = datetime.now().isoformat()
             
-            # Парсим новые данные
-            logger.info(f"Парсинг таро для {reading_date}")
-            raw_data = await self.parser.parse_tarot_reading(reading_date)
+            # Проверяем формат карт
+            for card in reading_data['cards']:
+                if 'card_name' not in card or 'position_name' not in card or 'card_image_url' not in card:
+                    logger.error(f"Некорректный формат данных карты: {card}")
+                    return None
             
-            # Сохраняем в кэш
-            await self.cache_manager.set(reading_date, raw_data)
-            
-            return ApiResponse(
-                success=True,
-                data=TarotReading(**raw_data),
-                cached=False
-            )
-            
-        except HTTPException:
-            raise
+            # Генерируем PDF
+            return await self.pdf_generator.generate_reading_pdf(reading_data)
+        
         except Exception as e:
-            logger.error(f"Неожиданная ошибка: {e}")
-            return ApiResponse(
-                success=False,
-                error=f"Внутренняя ошибка сервера: {str(e)}"
-            ) 
+            logger.error(f"Ошибка при генерации PDF: {e}")
+            return None 

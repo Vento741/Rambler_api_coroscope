@@ -50,7 +50,7 @@ if os.getenv("ADDITIONAL_CORS_ORIGINS"):
     CORS_ORIGINS.extend(os.getenv("ADDITIONAL_CORS_ORIGINS").split(","))
 
 # Настройки кэша
-CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "120"))
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "180"))
 CACHE_CLEANUP_INTERVAL = int(os.getenv("CACHE_CLEANUP_INTERVAL", "600"))
 
 # Настройки парсера

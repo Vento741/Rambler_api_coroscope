@@ -1,15 +1,7 @@
 """
-Модуль для работы с картами Таро
+Модуль для работы с Таро
 """
-from .models import ApiResponse, TarotCard, TarotSpread, TarotReading, TarotReadingRequest, TarotCardPosition
-from .openrouter_service import TarotOpenRouterService
 
-__all__ = [
-    'TarotCard',
-    'TarotReading',
-    'ApiResponse',
-    'TarotSpread',
-    'TarotReadingRequest',
-    'TarotCardPosition',
-    'TarotOpenRouterService'
-] 
+from .pdf_generator import TarotPDFGenerator
+
+__all__ = ['TarotPDFGenerator']

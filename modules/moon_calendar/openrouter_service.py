@@ -235,48 +235,90 @@ class MoonCalendarOpenRouterService:
     
     async def get_moon_calendar_response(self, calendar_date: date, user_type: str) -> ApiResponse:
         """
-        Получение ответа лунного календаря для пользователя (только из кэша).
-        AI-генерация теперь происходит в фоновой задаче.
+        Получение ответа лунного календаря с обработкой через OpenRouter
         
         :param calendar_date: Дата календаря
         :param user_type: Тип пользователя (free/premium)
         :return: Ответ API
         """
         try:
-            # Проверяем наличие кэшированного AI-ответа
-            cached_ai_response = await self._get_cached_response(calendar_date, user_type)
+            # Проверяем наличие кэшированного ответа
+            ai_response = await self._get_cached_response(calendar_date, user_type)
             
-            if cached_ai_response:
+            if ai_response:
                 logger.info(f"Возвращаю кэшированный AI-ответ для {calendar_date} и типа {user_type}")
                 return ApiResponse(
-                    success=True,
-                    data=cached_ai_response,
-                    cached=True,
-                    model="cached_ai_response" 
+                    date=calendar_date.isoformat(),
+                    response=ai_response,
+                    error=None
                 )
-            else:
-                # Если AI-ответа нет, проверяем, есть ли хотя бы спарсенные данные
-                # Это поможет понять, была ли уже запущена фоновая задача для этой даты
-                parsed_data_from_cache = await self.cache_manager.get(calendar_date)
-                if parsed_data_from_cache:
-                    logger.warning(f"Кэшированный AI-ответ для {calendar_date} (тип: {user_type}) НЕ НАЙДЕН, но спарсенные данные ЕСТЬ. Возможно, AI-генерация еще не завершена.")
+            
+            # Если кэшированный ответ не найден, проверяем наличие данных календаря
+            calendar_data = await self._get_calendar_data(calendar_date)
+            
+            if not calendar_data:
+                # Если данных нет, пробуем их спарсить и сохранить
+                logger.warning(f"ДАННЫЕ для {calendar_date} НЕ НАЙДЕНЫ в кэше. Пробуем спарсить заново.")
+                try:
+                    calendar_data = await self.parser.parse_calendar_day(calendar_date)
+                    await self.cache_manager.set(calendar_date, calendar_data)
+                    logger.info(f"Данные для {calendar_date} успешно спарсены и сохранены в кэш.")
+                except Exception as e:
+                    logger.error(f"Ошибка при попытке спарсить данные для {calendar_date}: {e}", exc_info=True)
                     return ApiResponse(
-                        success=False,
-                        error=f"Прогноз для {calendar_date} (тип: {user_type}) еще не готов. Пожалуйста, попробуйте позже.",
-                        model="parsed_data_exists_no_ai_response"
+                        date=calendar_date.isoformat(),
+                        response=None,
+                        error=f"Данные лунного календаря для {calendar_date} не найдены в кэше и не могут быть получены: {str(e)}"
                     )
-                else:
-                    logger.warning(f"ДАННЫЕ для {calendar_date} НЕ НАЙДЕНЫ в кэше. Фоновая задача, возможно, еще не обработала эту дату.")
-                    return ApiResponse(
-                        success=False,
-                        error=f"Данные для {calendar_date} еще не обработаны. Пожалуйста, попробуйте позже.",
-                        model="no_data_in_cache"
-                    )
-
+            
+            # Теперь у нас есть данные календаря, но нет AI-ответа. Генерируем его.
+            logger.info(f"Генерация AI-ответа для {calendar_date} и типа {user_type} в реальном времени...")
+            
+            # Получаем конфигурацию промпта
+            prompt_config = self._get_prompt_config(user_type)
+            
+            # Подготавливаем сообщение пользователя
+            user_message = self._prepare_user_message(calendar_data, user_type)
+            
+            # Получаем модели для данного типа пользователя
+            models = self._get_models_for_user_type(user_type)
+            
+            # Генерируем ответ
+            try:
+                ai_response_text = await self.openrouter_client.generate_text(
+                    system_message=prompt_config["system_message"],
+                    user_message=user_message,
+                    max_tokens=prompt_config["max_tokens"],
+                    temperature=prompt_config["temperature"],
+                    model=models[0] if models else None
+                )
+                
+                # Очищаем ответ
+                ai_response_text = await self._clean_model_response(ai_response_text)
+                
+                # Кэшируем ответ
+                await self._cache_response(calendar_date, user_type, ai_response_text)
+                
+                logger.info(f"AI-ответ для {calendar_date} и типа {user_type} успешно сгенерирован и кэширован.")
+                
+                return ApiResponse(
+                    date=calendar_date.isoformat(),
+                    response=ai_response_text,
+                    error=None
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при генерации AI-ответа для {calendar_date} и типа {user_type}: {e}", exc_info=True)
+                return ApiResponse(
+                    date=calendar_date.isoformat(),
+                    response=None,
+                    error=f"Ошибка при генерации AI-ответа: {str(e)}"
+                )
+            
         except Exception as e:
-            logger.error(f"Неожиданная ошибка при получении кэшированного AI-ответа для {calendar_date} (тип: {user_type}): {e}", exc_info=True)
+            logger.error(f"Общая ошибка в get_moon_calendar_response для {calendar_date} и типа {user_type}: {e}", exc_info=True)
             return ApiResponse(
-                success=False,
+                date=calendar_date.isoformat(),
+                response=None,
                 error=f"Внутренняя ошибка сервера при получении прогноза: {str(e)}"
             )
 

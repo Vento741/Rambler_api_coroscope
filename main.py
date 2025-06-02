@@ -51,9 +51,21 @@ async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
             logger.error(f"Ошибка при начальном обновлении кэша: {e}", exc_info=True)
             logger.info("Несмотря на ошибку, продолжаем запуск периодического обновления.")
         
+        # Проверяем настройки интервала обновления и TTL кэша
+        update_interval = config.BACKGROUND_TASKS["update_cache_interval_minutes"]
+        cache_ttl = config.CACHE_TTL_MINUTES
+        
+        if cache_ttl <= update_interval:
+            logger.warning(f"ВНИМАНИЕ: TTL кэша ({cache_ttl} мин) меньше или равен интервалу обновления ({update_interval} мин)! "
+                          f"Это может привести к истечению срока действия кэша до следующего обновления. "
+                          f"Рекомендуется установить TTL кэша как минимум в 2-3 раза больше интервала обновления.")
+        else:
+            logger.info(f"Настройки кэша: TTL = {cache_ttl} мин, интервал обновления = {update_interval} мин. "
+                       f"TTL кэша в {cache_ttl/update_interval:.1f} раз больше интервала обновления, что хорошо.")
+        
         # Затем запускаем периодическое обновление
-        logger.info(f"Запуск периодического обновления кэша каждые {config.BACKGROUND_TASKS['update_cache_interval_minutes']} минут...")
-        await tasks.run_periodic_update(config.BACKGROUND_TASKS["update_cache_interval_minutes"])
+        logger.info(f"Запуск периодического обновления кэша каждые {update_interval} минут...")
+        await tasks.run_periodic_update(update_interval)
     except Exception as e:
         logger.critical(f"Критическая ошибка в фоновой задаче обновления кэша: {e}", exc_info=True)
         # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
