@@ -167,8 +167,8 @@ class BookCzinService:
             # Загружаем данные гексаграммы
             hexagram_data = self._load_hexagram_data(hexagram_number)
             
-            # Формируем URL изображения (прямая ссылка вместо base64)
-            image_url = f"{self.base_url}/api/v1/book-czin/image/{hexagram_number}"
+            # Формируем относительный путь к изображению (без базового URL)
+            image_url = f"/api/v1/book-czin/image/{hexagram_number}"
             
             # Форматируем текст гексаграммы
             hexagram_text = self._format_hexagram_text(hexagram_data)
