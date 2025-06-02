@@ -36,6 +36,7 @@ class RandomHexagramResponse(BaseModel):
     title: str
     description: str
     image_url: str
+    pdf_url: str
     sections: Dict[str, str]
     formatted_text: str
 
