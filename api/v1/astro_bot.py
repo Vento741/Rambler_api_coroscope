@@ -3,6 +3,7 @@
 """
 from datetime import datetime, date
 from typing import Optional
+import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from modules.moon_calendar import MoonCalendarParser, ApiResponse
@@ -12,6 +13,9 @@ from core.openrouter_client import OpenRouterClient
 import config
 
 router = APIRouter(prefix="/api/v1/astro_bot")
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
 
 @router.get("/moon_day", response_model=ApiResponse)
 async def get_moon_day(
@@ -25,7 +29,15 @@ async def get_moon_day(
     - **user_type**: Тип пользователя (free/premium)
     - **calendar_date**: Дата в формате YYYY-MM-DD (если не указана, используется текущая дата)
     """
+    # Получаем сервис из state приложения
     openrouter_service: MoonCalendarOpenRouterService = request.app.state.moon_openrouter_service
+    
+    # Проверяем, что Redis подключен
+    if not openrouter_service.cache_manager.redis:
+        logger.error("Redis не подключен при запросе к /moon_day. Пробуем переподключиться...")
+        await openrouter_service.cache_manager.connect()
+        if not openrouter_service.cache_manager.redis:
+            logger.critical("Не удалось подключиться к Redis при запросе к /moon_day!")
     
     if user_type not in ["free", "premium"]:
         raise HTTPException(
@@ -44,4 +56,11 @@ async def get_moon_day(
             detail="Неверный формат даты. Используйте YYYY-MM-DD"
         )
     
-    return await openrouter_service.get_moon_calendar_response(date_obj, user_type) 
+    try:
+        return await openrouter_service.get_moon_calendar_response(date_obj, user_type)
+    except Exception as e:
+        logger.error(f"Ошибка при получении данных лунного календаря: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при получении данных лунного календаря: {str(e)}"
+        ) 
