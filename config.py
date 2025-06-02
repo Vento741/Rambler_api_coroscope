@@ -3,7 +3,7 @@
 """
 from dotenv import load_dotenv
 import os
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 # Загрузка переменных окружения из .env файла

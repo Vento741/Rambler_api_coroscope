@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 
 import config
 from core.cache import CacheManager
-from api.v1 import health, moon_calendar, tarot, astro_bot
+from api.v1 import health, moon_calendar, tarot, astro_bot, book_czin
 from api.middleware import log_request_middleware
-from modules.moon_calendar import MoonCalendarParser, MoonCalendarOpenRouterService
+from modules.moon_calendar import MoonCalendarParser, MoonCalendarOpenRouterService, MoonCalendarTasks
 from modules.moon_calendar.tasks import MoonCalendarTasks
 from api.v1.tarot_puzzlebot import router as tarot_puzzlebot_router
 from core.openrouter_client import OpenRouterClient
+from modules.book_czin import BookCzinService
 
 # Создаем директорию для логов, если она не существует
 logs_dir = Path("logs")
@@ -125,6 +126,11 @@ async def lifespan(app: FastAPI):
         openrouter_service=moon_openrouter_service # Передаем экземпляр сервиса
     )
     
+    # Инициализация сервиса для Книги Перемен
+    book_czin_service = BookCzinService(
+        base_url=config.BASE_URL
+    )
+    
     # Запускаем фоновую задачу обновления кэша лунного календаря
     update_calendar_task = asyncio.create_task(update_moon_calendar_cache_task(moon_calendar_tasks))
     
@@ -136,6 +142,7 @@ async def lifespan(app: FastAPI):
     app.state.openrouter_client_for_moon_tasks = openrouter_client_for_moon_tasks
     app.state.moon_openrouter_service = moon_openrouter_service
     app.state.moon_calendar_tasks = moon_calendar_tasks
+    app.state.book_czin_service = book_czin_service
     
     yield
     
@@ -215,6 +222,7 @@ app.include_router(moon_calendar.router, tags=["moon_calendar"])
 app.include_router(tarot.router, tags=["tarot"])
 app.include_router(astro_bot.router, tags=["astro_bot"])
 app.include_router(tarot_puzzlebot_router)
+app.include_router(book_czin.router)
 
 # ================= ENTRY POINT =================
 
