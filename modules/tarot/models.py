@@ -78,3 +78,10 @@ class TarotCardPosition(BaseModel):
     """
     name: str = Field(..., description="Название позиции")
     description: str = Field(..., description="Описание значения позиции в раскладе")
+
+
+class PuzzleBotResponse(BaseModel):
+    """
+    Модель ответа для PuzzleBot
+    """
+    api_result_text: str = Field(..., description="Текстовый результат для отображения в PuzzleBot")
