@@ -21,8 +21,8 @@ async def get_random_hexagram(request: Request):
     # Получаем сервис из state приложения
     service = request.app.state.book_czin_service
     
-    # Получаем случайную гексаграмму
-    return await service.get_random_hexagram()
+    # Получаем случайную гексаграмму (без await, т.к. метод не асинхронный)
+    return service.get_random_hexagram()
 
 @router.get("/image/{hexagram_number}")
 async def get_hexagram_image(hexagram_number: int, request: Request):
