@@ -41,11 +41,22 @@ logger = logging.getLogger(__name__)
 
 async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
     """Фоновая задача обновления кэша лунного календаря и генерации AI-ответов"""
-    # Сначала обновляем кэш и генерируем ответы сразу при запуске
-    await tasks.update_calendar_cache_and_generate_ai_responses()
-    
-    # Затем запускаем периодическое обновление
-    await tasks.run_periodic_update(config.BACKGROUND_TASKS["update_cache_interval_minutes"])
+    try:
+        # Сначала обновляем кэш и генерируем ответы сразу при запуске
+        logger.info("Запуск начального обновления кэша и генерации AI-ответов...")
+        try:
+            await tasks.update_calendar_cache_and_generate_ai_responses()
+            logger.info("Начальное обновление кэша и генерация AI-ответов выполнены успешно.")
+        except Exception as e:
+            logger.error(f"Ошибка при начальном обновлении кэша: {e}", exc_info=True)
+            logger.info("Несмотря на ошибку, продолжаем запуск периодического обновления.")
+        
+        # Затем запускаем периодическое обновление
+        logger.info(f"Запуск периодического обновления кэша каждые {config.BACKGROUND_TASKS['update_cache_interval_minutes']} минут...")
+        await tasks.run_periodic_update(config.BACKGROUND_TASKS["update_cache_interval_minutes"])
+    except Exception as e:
+        logger.critical(f"Критическая ошибка в фоновой задаче обновления кэша: {e}", exc_info=True)
+        # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
 
 # ================= APPLICATION =================
 
@@ -56,7 +67,25 @@ async def lifespan(app: FastAPI):
     
     # Инициализация зависимостей внутри lifespan
     cache_manager = CacheManager(ttl_minutes=config.CACHE_TTL_MINUTES)
-    await cache_manager.connect() # Устанавливаем соединение с Redis
+    
+    # Пробуем подключиться к Redis с несколькими попытками
+    max_redis_connect_attempts = 3
+    redis_connected = False
+    
+    for attempt in range(1, max_redis_connect_attempts + 1):
+        logger.info(f"Попытка подключения к Redis {attempt}/{max_redis_connect_attempts}...")
+        await cache_manager.connect()
+        if cache_manager.redis:
+            redis_connected = True
+            logger.info(f"Успешное подключение к Redis с попытки {attempt}")
+            break
+        else:
+            logger.warning(f"Не удалось подключиться к Redis с попытки {attempt}. {'Пробуем еще раз...' if attempt < max_redis_connect_attempts else 'Исчерпаны все попытки.'}")
+            if attempt < max_redis_connect_attempts:
+                await asyncio.sleep(1)  # Небольшая пауза перед следующей попыткой
+    
+    if not redis_connected:
+        logger.critical(f"Не удалось подключиться к Redis после {max_redis_connect_attempts} попыток! Приложение может работать некорректно.")
     
     parser = MoonCalendarParser(timeout=config.PARSER_TIMEOUT)
     

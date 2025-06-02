@@ -27,14 +27,26 @@ class CacheManager:
     async def connect(self):
         """Устанавливает асинхронное подключение к Redis."""
         try:
+            # Если соединение уже есть, сначала закроем его
+            if self.redis:
+                try:
+                    await self.redis.close()
+                    logger.info("Закрыто предыдущее соединение с Redis перед повторным подключением.")
+                except Exception as e:
+                    logger.warning(f"Ошибка при закрытии предыдущего соединения с Redis: {e}")
+            
             # Используем from_url для подключения с пулом соединений
             self.redis = aioredis.from_url(config.REDIS_URL, encoding="utf-8", decode_responses=False) # decode_responses=False для работы с pickle
             logger.info(f"Успешно подключено к Redis по адресу: {config.REDIS_URL}")
+            
             # Проверяем соединение
             await self.redis.ping()
             logger.info("Redis connection ping successful.")
-        except Exception as e:
+        except aioredis.RedisError as e:
             logger.critical(f"НЕ УДАЛОСЬ ПОДКЛЮЧИТЬСЯ К REDIS по адресу {config.REDIS_URL}: {e}", exc_info=True)
+            self.redis = None
+        except Exception as e:
+            logger.critical(f"Неожиданная ошибка при подключении к REDIS по адресу {config.REDIS_URL}: {e}", exc_info=True)
             # В продакшене, возможно, стоит здесь предпринять другие действия (например, завершить приложение)
             # В рамках текущей задачи просто логируем критическую ошибку.
             self.redis = None # Убедимся, что self.redis None при ошибке
@@ -57,8 +69,11 @@ class CacheManager:
         :return: Данные из кэша или None, если нет данных или Redis недоступен.
         """
         if not self.redis:
-            logger.error("Попытка GET из кэша, но Redis не подключен.")
-            return None
+            logger.error("Попытка GET из кэша, но Redis не подключен. Пробуем переподключиться...")
+            await self.connect()
+            if not self.redis:
+                logger.error("Переподключение к Redis не удалось. GET невозможен.")
+                return None
 
         key = self._generate_key(date_obj)
         logger.info(f"Попытка кэширования GET для ключа: {key}")
@@ -82,9 +97,16 @@ class CacheManager:
                 logger.info(f"Кэш MISS для ключа: {key} (date: {date_obj})")
                 return None
 
+        except aioredis.exceptions.ConnectionError as e:
+            logger.error(f"Ошибка соединения с Redis при GET для ключа {key}: {e}", exc_info=True)
+            logger.info("Пробуем переподключиться к Redis...")
+            await self.connect()
+            if self.redis:
+                logger.info("Переподключение к Redis успешно. Повторяем GET...")
+                return await self.get(date_obj) # Рекурсивно повторяем запрос после переподключения
+            return None
         except aioredis.exceptions.RedisError as e:
             logger.error(f"Redis error during GET operation for key {key}: {e}", exc_info=True)
-            # Возможно, здесь стоит обработать конкретные ошибки Redis, например, проблемы с соединением
             return None
         except Exception as e:
             logger.error(f"Неожиданная ошибка в CacheManager.get для ключа {key}: {e}", exc_info=True)
@@ -99,8 +121,11 @@ class CacheManager:
         :param data: Данные для сохранения (словарь).
         """
         if not self.redis:
-            logger.error("Попытка SET в кэш, но Redis не подключен.")
-            return
+            logger.error("Попытка SET в кэш, но Redis не подключен. Пробуем переподключиться...")
+            await self.connect()
+            if not self.redis:
+                logger.error("Переподключение к Redis не удалось. SET невозможен.")
+                return
 
         key = self._generate_key(date_obj)
         logger.info(f"Попытка кэширования SET для ключа: {key} (date: {date_obj})")
@@ -163,9 +188,14 @@ class CacheManager:
             await self.redis.set(key, pickled_data, ex=self._ttl_seconds)
 
             logger.info(f"Кэширование SET успешно для ключа: {key} (date: {date_obj}) с TTL {self._ttl_seconds} сек.")
-            # В Redis нет прямого способа получить размер всех ключей без KEYS, который может быть медленным на больших базах.
-            # Поэтому не логируем размер кэша после SET, как это было с in-memory словарем.
 
+        except aioredis.exceptions.ConnectionError as e:
+            logger.error(f"Ошибка соединения с Redis при SET для ключа {key}: {e}", exc_info=True)
+            logger.info("Пробуем переподключиться к Redis...")
+            await self.connect()
+            if self.redis:
+                logger.info("Переподключение к Redis успешно. Повторяем SET...")
+                await self.set(date_obj, data) # Рекурсивно повторяем запрос после переподключения
         except aioredis.exceptions.RedisError as e:
             logger.error(f"Redis error during SET operation for key {key}: {e}", exc_info=True)
         except Exception as e:
