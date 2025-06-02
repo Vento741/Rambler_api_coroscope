@@ -70,3 +70,11 @@ class TarotSpread(BaseModel):
     name: str = Field(..., description="Название расклада")
     description: str = Field(..., description="Описание расклада")
     positions: List[Dict[str, str]] = Field(..., description="Позиции карт в раскладе")
+
+
+class TarotCardPosition(BaseModel):
+    """
+    Модель позиции карты в раскладе
+    """
+    name: str = Field(..., description="Название позиции")
+    description: str = Field(..., description="Описание значения позиции в раскладе")
