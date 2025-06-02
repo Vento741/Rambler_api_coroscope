@@ -101,28 +101,6 @@ class BookCzinService:
                 detail=f"Ошибка при загрузке данных гексаграммы: {str(e)}"
             )
     
-    def _get_image_base64(self, hexagram_number: int) -> Optional[str]:
-        """
-        Получение изображения гексаграммы в формате base64
-        
-        :param hexagram_number: Номер гексаграммы
-        :return: Строка base64 или None, если изображение не найдено
-        """
-        try:
-            image_path = os.path.join(self.images_dir, f"{hexagram_number}.png")
-            
-            if not os.path.exists(image_path):
-                logger.warning(f"Файл изображения для гексаграммы {hexagram_number} не найден: {image_path}")
-                return None
-                
-            with open(image_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-                return f"data:image/png;base64,{encoded_string}"
-                
-        except Exception as e:
-            logger.error(f"Ошибка при получении изображения гексаграммы {hexagram_number}: {e}")
-            return None
-    
     def _format_hexagram_text(self, hexagram_data: Dict[str, Any]) -> str:
         """
         Форматирование текста гексаграммы для отображения в Telegram
@@ -134,38 +112,38 @@ class BookCzinService:
         
         # Форматируем основную информацию
         result = [
-            f"*{hexagram_data['number']}. {hexagram_data['title']}*",
+            f"{hexagram_data['number']}. {hexagram_data['title']}",
             f"{hexagram_data['description']}",
             "",
-            f"*Название:* {sections.get('Название', '')}",
+            f"НАЗВАНИЕ: {sections.get('Название', '')}",
             "",
-            f"*Определение:* {sections.get('Определение', '')}",
+            f"ОПРЕДЕЛЕНИЕ: {sections.get('Определение', '')}",
             "",
-            f"*Символ:* {sections.get('Символ', '')}",
+            f"СИМВОЛ: {sections.get('Символ', '')}",
             "",
-            f"*Образный ряд:* {sections.get('Образный ряд', '')}"
+            f"ОБРАЗНЫЙ РЯД: {sections.get('Образный ряд', '')}"
         ]
         
         # Добавляем линии гексаграммы, если они есть
         lines = []
         if sections.get('Вначале девятка'):
-            lines.append(f"*Вначале девятка:* {sections['Вначале девятка']}")
+            lines.append(f"9️⃣ В НАЧАЛЕ ДЕВЯТКА: {sections['Вначале девятка']}")
         if sections.get('Девятка вторая'):
-            lines.append(f"*Девятка вторая:* {sections['Девятка вторая']}")
+            lines.append(f"9️⃣ ВТОРАЯ ДЕВЯТКА: {sections['Девятка вторая']}")
         if sections.get('Девятка третья'):
-            lines.append(f"*Девятка третья:* {sections['Девятка третья']}")
+            lines.append(f"9️⃣ ТРЕТЬЯ ДЕВЯТКА: {sections['Девятка третья']}")
         if sections.get('Девятка четвертая'):
-            lines.append(f"*Девятка четвертая:* {sections['Девятка четвертая']}")
+            lines.append(f"9️⃣ ЧЕТВЕРТАЯ ДЕВЯТКА: {sections['Девятка четвертая']}")
         if sections.get('Девятка пятая'):
-            lines.append(f"*Девятка пятая:* {sections['Девятка пятая']}")
+            lines.append(f"9️⃣ ПЯТАЯ ДЕВЯТКА: {sections['Девятка пятая']}")
         if sections.get('Наверху девятка'):
-            lines.append(f"*Наверху девятка:* {sections['Наверху девятка']}")
+            lines.append(f"9️⃣ НАВЕРХУ ДЕВЯТКА: {sections['Наверху девятка']}")
         if sections.get('Все девятки'):
-            lines.append(f"*Все девятки:* {sections['Все девятки']}")
+            lines.append(f"9️⃣ ВСЕ ДЕВЯТКИ: {sections['Все девятки']}")
             
         if lines:
             result.append("")
-            result.append("*Линии гексаграммы:*")
+            result.append("ЛИНИИ ГЕКСАГРАММЫ:")
             result.extend(lines)
             
         return "\n".join(result)
@@ -189,8 +167,8 @@ class BookCzinService:
             # Загружаем данные гексаграммы
             hexagram_data = self._load_hexagram_data(hexagram_number)
             
-            # Получаем изображение в формате base64
-            image_base64 = self._get_image_base64(hexagram_number)
+            # Формируем URL изображения (прямая ссылка вместо base64)
+            image_url = f"{self.base_url}/api/v1/book-czin/image/{hexagram_number}"
             
             # Форматируем текст гексаграммы
             hexagram_text = self._format_hexagram_text(hexagram_data)
@@ -200,7 +178,7 @@ class BookCzinService:
                 number=hexagram_data["number"],
                 title=hexagram_data["title"],
                 description=hexagram_data["description"],
-                image_url=image_base64 or f"{self.base_url}/api/v1/book-czin/image/{hexagram_number}",
+                image_url=image_url,
                 sections=hexagram_data["sections"],
                 formatted_text=hexagram_text
             )

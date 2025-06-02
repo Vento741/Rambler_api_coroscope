@@ -44,5 +44,15 @@ async def get_hexagram_image(hexagram_number: int, request: Request):
             detail=f"Изображение для гексаграммы {hexagram_number} не найдено"
         )
     
-    # Возвращаем файл изображения
-    return FileResponse(image_path, media_type="image/png") 
+    # Возвращаем файл изображения с дополнительными заголовками для кэширования и CORS
+    response = FileResponse(
+        image_path, 
+        media_type="image/png",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=86400",
+            "X-Hexagram-Number": str(hexagram_number)
+        }
+    )
+    
+    return response 
