@@ -37,6 +37,7 @@ class RandomHexagramResponse(BaseModel):
     description: str
     image_url: str
     sections: Dict[str, str]
+    formatted_text: str
 
 
 class ApiResponse(BaseModel):

@@ -175,4 +175,4 @@ def get_api_url(path: str = "") -> str:
     return base_url
 
 # Базовый URL для формирования полных URL к ресурсам
-BASE_URL = os.getenv("BASE_URL", "http://localhost:8081")
+BASE_URL = os.getenv("BASE_URL", "http://81.177.6.93:8081")
