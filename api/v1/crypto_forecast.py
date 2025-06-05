@@ -86,8 +86,12 @@ async def get_available_cryptos(
         raise HTTPException(status_code=500, detail=f"Ошибка при получении списка криптовалют: {str(e)}")
 
 @router.post("/puzzlebot/forecast")
+@router.get("/puzzlebot/forecast")
 async def puzzlebot_forecast(
-    request: Dict[str, Any],
+    request: Dict[str, Any] = None,
+    symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
+    period: str = Query(None, description="Период прогноза (hour, day, week)"),
+    user_type: str = Query("free", description="Тип пользователя (free, premium)"),
     forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
 ):
     """
@@ -103,10 +107,14 @@ async def puzzlebot_forecast(
     }
     """
     try:
-        # Получаем параметры из запроса
-        symbol = request.get("crypto_symbol", "BTC")
-        period = request.get("forecast_period", "day")
-        user_type = request.get("user_type", "free")
+        # Получаем параметры из запроса или из query параметров
+        if request:
+            symbol = request.get("crypto_symbol", symbol or "BTC")
+            period = request.get("forecast_period", period or "day")
+            user_type = request.get("user_type", user_type)
+        else:
+            symbol = symbol or "BTC"
+            period = period or "day"
         
         # Преобразуем период из текстового формата в код
         period_mapping = {
@@ -159,6 +167,7 @@ async def puzzlebot_forecast(
         )
 
 @router.post("/puzzlebot/welcome")
+@router.get("/puzzlebot/welcome")
 async def puzzlebot_welcome():
     """
     Эндпоинт для получения приветственного сообщения и инструкций
@@ -184,8 +193,10 @@ async def puzzlebot_welcome():
         )
 
 @router.post("/puzzlebot/crypto_info")
+@router.get("/puzzlebot/crypto_info")
 async def puzzlebot_crypto_info(
-    request: Dict[str, Any],
+    request: Dict[str, Any] = None,
+    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
 ):
     """
@@ -199,8 +210,11 @@ async def puzzlebot_crypto_info(
     }
     """
     try:
-        # Получаем параметры из запроса
-        symbol = request.get("crypto_symbol", "BTC")
+        # Получаем параметры из запроса или из query параметров
+        if request:
+            symbol = request.get("crypto_symbol", crypto_symbol or "BTC")
+        else:
+            symbol = crypto_symbol or "BTC"
         
         # Нормализуем символ (добавляем USDT, если не указан)
         if not symbol.endswith("USDT"):
@@ -305,6 +319,7 @@ async def puzzlebot_crypto_info(
         )
 
 @router.post("/puzzlebot/disclaimer")
+@router.get("/puzzlebot/disclaimer")
 async def puzzlebot_disclaimer():
     """
     Эндпоинт для получения отказа от ответственности
@@ -330,8 +345,11 @@ async def puzzlebot_disclaimer():
         )
 
 @router.post("/puzzlebot/market_data")
+@router.get("/puzzlebot/market_data")
 async def puzzlebot_market_data(
-    request: Dict[str, Any],
+    request: Dict[str, Any] = None,
+    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
+    period: str = Query(None, description="Период прогноза (hour, day, week)"),
     forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
 ):
     """
@@ -347,9 +365,13 @@ async def puzzlebot_market_data(
     }
     """
     try:
-        # Получаем параметры из запроса
-        symbol = request.get("crypto_symbol", "BTC")
-        period = request.get("period", "day")
+        # Получаем параметры из запроса или из query параметров
+        if request:
+            symbol = request.get("crypto_symbol", crypto_symbol or "BTC")
+            period = request.get("period", period or "day")
+        else:
+            symbol = crypto_symbol or "BTC"
+            period = period or "day"
         
         # Преобразуем период из текстового формата в код
         period_mapping = {
