@@ -1,0 +1,259 @@
+"""
+Сервис для генерации прогнозов криптовалют с использованием данных Bybit и моделей ИИ
+"""
+import logging
+import json
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timedelta
+
+from core.cache import CacheManager
+from core.openrouter_client import OpenRouterClient
+from modules.crypto_forecast.bybit_client import BybitClient
+
+logger = logging.getLogger(__name__)
+
+class CryptoForecastService:
+    """
+    Сервис для генерации прогнозов криптовалют
+    """
+    
+    def __init__(
+        self,
+        cache_manager: CacheManager,
+        bybit_client: BybitClient,
+        openrouter_client: OpenRouterClient,
+        prompts_config: Dict[str, Dict[str, Any]]
+    ):
+        """
+        Инициализация сервиса прогнозирования криптовалют
+        
+        :param cache_manager: Менеджер кэша
+        :param bybit_client: Клиент для работы с Bybit API
+        :param openrouter_client: Клиент для работы с OpenRouter API
+        :param prompts_config: Конфигурация промптов для разных типов пользователей
+        """
+        self.cache_manager = cache_manager
+        self.bybit_client = bybit_client
+        self.openrouter_client = openrouter_client
+        self.prompts_config = prompts_config
+        
+        logger.info("CryptoForecastService инициализирован")
+    
+    def _generate_cache_key(self, symbol: str, period: str) -> str:
+        """
+        Генерация ключа для кэша
+        
+        :param symbol: Символ криптовалюты
+        :param period: Период прогноза
+        :return: Ключ для кэша
+        """
+        return f"crypto_forecast_{symbol.lower()}_{period}"
+    
+    async def _prepare_forecast_prompt(
+        self,
+        market_data: Dict[str, Any],
+        period: str,
+        user_type: str = "free"
+    ) -> str:
+        """
+        Подготовка промпта для генерации прогноза
+        
+        :param market_data: Рыночные данные
+        :param period: Период прогноза (hour, day, week)
+        :param user_type: Тип пользователя (free, premium)
+        :return: Промпт для модели
+        """
+        symbol = market_data["symbol"]
+        ticker = market_data["ticker"]
+        historical_data = market_data["historical_data"]
+        
+        # Получаем текущую цену
+        current_price = "Неизвестно"
+        if "list" in ticker and ticker["list"] and len(ticker["list"]) > 0:
+            current_price = ticker["list"][0].get("lastPrice", "Неизвестно")
+        
+        # Формируем текст с историческими данными
+        historical_text = ""
+        
+        # Добавляем данные по часам (последние 24 часа)
+        if "1h" in historical_data and historical_data["1h"]:
+            historical_text += "\nДанные по часам (последние 24 часа):\n"
+            for i, kline in enumerate(historical_data["1h"][:24]):
+                if len(kline) >= 4:
+                    timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d %H:%M")
+                    open_price = kline[1]
+                    high_price = kline[2]
+                    low_price = kline[3]
+                    close_price = kline[4]
+                    volume = kline[5]
+                    
+                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+        
+        # Добавляем данные по 4 часам (последние 7 дней)
+        if period in ["day", "week"] and "4h" in historical_data and historical_data["4h"]:
+            historical_text += "\nДанные по 4 часам (последние 7 дней):\n"
+            for i, kline in enumerate(historical_data["4h"][:42]):  # 42 периода по 4 часа = 7 дней
+                if len(kline) >= 4:
+                    timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d %H:%M")
+                    open_price = kline[1]
+                    high_price = kline[2]
+                    low_price = kline[3]
+                    close_price = kline[4]
+                    volume = kline[5]
+                    
+                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+        
+        # Добавляем данные по дням (последние 30 дней)
+        if period == "week" and "1d" in historical_data and historical_data["1d"]:
+            historical_text += "\nДанные по дням (последние 30 дней):\n"
+            for i, kline in enumerate(historical_data["1d"][:30]):
+                if len(kline) >= 4:
+                    timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d")
+                    open_price = kline[1]
+                    high_price = kline[2]
+                    low_price = kline[3]
+                    close_price = kline[4]
+                    volume = kline[5]
+                    
+                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+        
+        # Формируем текст с периодом прогноза
+        period_text = ""
+        if period == "hour":
+            period_text = "на ближайший час"
+        elif period == "day":
+            period_text = "на завтра"
+        elif period == "week":
+            period_text = "на ближайшую неделю"
+        
+        # Формируем промпт в зависимости от типа пользователя
+        prompt = f"""
+Проанализируй данные о криптовалюте {symbol} и сделай прогноз {period_text}.
+
+Текущая цена: {current_price}
+
+{historical_text}
+
+Сделай детальный анализ и прогноз цены {symbol} {period_text}. Включи в анализ:
+1. Текущие тренды и паттерны
+2. Уровни поддержки и сопротивления
+3. Объемы торгов и их влияние
+4. Прогнозируемый диапазон цен
+5. Факторы, которые могут повлиять на цену
+6. Рекомендации для трейдеров
+
+Предоставь структурированный и обоснованный прогноз.
+"""
+        
+        return prompt
+    
+    async def generate_forecast(
+        self,
+        symbol: str,
+        period: str,
+        user_type: str = "free",
+        force_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Генерация прогноза для криптовалюты
+        
+        :param symbol: Символ криптовалюты (например, "BTC", "ETH")
+        :param period: Период прогноза ("hour", "day", "week")
+        :param user_type: Тип пользователя ("free", "premium")
+        :param force_refresh: Принудительное обновление прогноза
+        :return: Прогноз криптовалюты
+        """
+        try:
+            # Нормализуем символ (добавляем USDT, если не указан)
+            if not symbol.endswith("USDT"):
+                symbol = f"{symbol}USDT"
+            
+            # Проверяем кэш
+            cache_key = self._generate_cache_key(symbol, period)
+            
+            # Если не требуется принудительное обновление, пытаемся получить данные из кэша
+            if not force_refresh and self.cache_manager.redis:
+                cached_data = await self.cache_manager.redis.get(cache_key)
+                if cached_data:
+                    try:
+                        forecast_data = json.loads(cached_data)
+                        logger.info(f"Получен прогноз из кэша для {symbol}, период {period}")
+                        return forecast_data
+                    except json.JSONDecodeError:
+                        logger.warning(f"Ошибка декодирования данных из кэша для {symbol}, период {period}")
+            
+            # Получаем рыночные данные
+            market_data = await self.bybit_client.get_market_data(symbol)
+            
+            # Подготавливаем промпт для модели
+            prompt = await self._prepare_forecast_prompt(market_data, period, user_type)
+            
+            # Получаем конфигурацию промпта для типа пользователя
+            prompt_config = self.prompts_config.get(user_type, self.prompts_config.get("free", {}))
+            
+            # Генерируем прогноз с использованием модели
+            forecast_text = await self.openrouter_client.generate_text(
+                system_message=prompt_config.get("system_message", "Ты — эксперт по криптовалютам и техническому анализу."),
+                user_message=prompt,
+                max_tokens=prompt_config.get("max_tokens", 1500),
+                temperature=prompt_config.get("temperature", 0.7)
+            )
+            
+            # Формируем результат
+            forecast_data = {
+                "symbol": symbol,
+                "period": period,
+                "current_price": market_data["ticker"]["list"][0].get("lastPrice", "Неизвестно") if "list" in market_data["ticker"] and market_data["ticker"]["list"] else "Неизвестно",
+                "forecast": forecast_text,
+                "generated_at": datetime.now().isoformat(),
+                "expires_at": (datetime.now() + timedelta(hours=1)).isoformat() if period == "hour" else 
+                             (datetime.now() + timedelta(days=1)).isoformat() if period == "day" else
+                             (datetime.now() + timedelta(days=3)).isoformat()  # для недельного прогноза
+            }
+            
+            # Сохраняем в кэш
+            if self.cache_manager.redis:
+                # Устанавливаем TTL в зависимости от периода
+                ttl = 3600  # 1 час для часового прогноза
+                if period == "day":
+                    ttl = 86400  # 24 часа для дневного прогноза
+                elif period == "week":
+                    ttl = 259200  # 3 дня для недельного прогноза
+                
+                await self.cache_manager.redis.set(
+                    cache_key,
+                    json.dumps(forecast_data),
+                    ex=ttl
+                )
+                logger.info(f"Прогноз для {symbol}, период {period} сохранен в кэш с TTL {ttl} сек.")
+            
+            return forecast_data
+        
+        except Exception as e:
+            logger.error(f"Ошибка при генерации прогноза для {symbol}, период {period}: {e}", exc_info=True)
+            raise
+    
+    async def get_available_cryptos(self) -> Dict[str, List[str]]:
+        """
+        Получение списка доступных криптовалют
+        
+        :return: Словарь со списками криптовалют
+        """
+        try:
+            # Получаем популярные криптовалюты
+            popular_cryptos = await self.bybit_client.get_popular_cryptos()
+            
+            # Получаем все доступные символы
+            all_symbols = await self.bybit_client.get_available_symbols()
+            
+            # Формируем результат
+            result = {
+                "popular": [symbol.replace("USDT", "") for symbol in popular_cryptos],
+                "all": [symbol.replace("USDT", "") for symbol in all_symbols if symbol.endswith("USDT")]
+            }
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка доступных криптовалют: {e}", exc_info=True)
+            raise 

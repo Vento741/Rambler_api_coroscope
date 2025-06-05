@@ -15,13 +15,16 @@ from fastapi.responses import JSONResponse
 
 import config
 from core.cache import CacheManager
-from api.v1 import health, moon_calendar, tarot, astro_bot, book_czin
+from api.v1 import health, moon_calendar, tarot, astro_bot, book_czin, crypto_forecast
 from api.middleware import log_request_middleware
 from modules.moon_calendar import MoonCalendarParser, MoonCalendarOpenRouterService, MoonCalendarTasks
 from modules.moon_calendar.tasks import MoonCalendarTasks
 from api.v1.tarot_puzzlebot import router as tarot_puzzlebot_router
 from core.openrouter_client import OpenRouterClient
 from modules.book_czin import BookCzinService
+from modules.crypto_forecast.bybit_client import BybitClient
+from modules.crypto_forecast.forecast_service import CryptoForecastService
+from modules.crypto_forecast.tasks import CryptoForecastTasks
 
 # Создаем директорию для логов, если она не существует
 logs_dir = Path("logs")
@@ -69,6 +72,31 @@ async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
         await tasks.run_periodic_update(update_interval)
     except Exception as e:
         logger.critical(f"Критическая ошибка в фоновой задаче обновления кэша: {e}", exc_info=True)
+        # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
+
+async def update_crypto_forecasts_task(tasks: CryptoForecastTasks):
+    """Фоновая задача обновления прогнозов криптовалют"""
+    try:
+        # Задержка перед запуском, чтобы не конфликтовать с другими задачами при старте
+        await asyncio.sleep(30)
+        
+        # Запускаем обновление прогнозов сразу при запуске
+        logger.info("Запуск начального обновления прогнозов криптовалют...")
+        try:
+            await tasks.update_popular_cryptos_forecasts()
+            logger.info("Начальное обновление прогнозов криптовалют выполнено успешно.")
+        except Exception as e:
+            logger.error(f"Ошибка при начальном обновлении прогнозов криптовалют: {e}", exc_info=True)
+            logger.info("Несмотря на ошибку, продолжаем запуск периодического обновления.")
+        
+        # Получаем интервал обновления из конфигурации
+        update_interval = config.BACKGROUND_TASKS.get("crypto_forecast_update_interval_minutes", 120)
+        
+        # Запускаем периодическое обновление
+        logger.info(f"Запуск периодического обновления прогнозов криптовалют каждые {update_interval} минут...")
+        await tasks.run_periodic_update(update_interval)
+    except Exception as e:
+        logger.critical(f"Критическая ошибка в фоновой задаче обновления прогнозов криптовалют: {e}", exc_info=True)
         # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
 
 # ================= APPLICATION =================
@@ -131,8 +159,44 @@ async def lifespan(app: FastAPI):
         base_url=config.BASE_URL
     )
     
+    # Инициализация клиента для работы с Bybit API
+    bybit_client = BybitClient(
+        api_key=config.BYBIT_API_KEY,
+        api_secret=config.BYBIT_API_SECRET,
+        testnet=config.BYBIT_TESTNET,
+        timeout=30  # Увеличенный таймаут для запросов к бирже
+    )
+    
+    # Инициализация OpenRouter клиента для прогнозов криптовалют
+    openrouter_client_for_crypto = OpenRouterClient(
+        api_url=config.OPENROUTER_API_URL,
+        api_keys=config.OPENROUTER_API_KEYS,
+        models=config.OPENROUTER_MODELS,
+        model_configs=config.OPENROUTER_MODEL_CONFIGS,
+        model_api_keys=config.OPENROUTER_MODEL_API_KEYS,
+        timeout=60  # Таймаут для запросов от фоновой задачи
+    )
+    
+    # Инициализация сервиса прогнозирования криптовалют
+    crypto_forecast_service = CryptoForecastService(
+        cache_manager=cache_manager,
+        bybit_client=bybit_client,
+        openrouter_client=openrouter_client_for_crypto,
+        prompts_config=config.CRYPTO_FORECAST_PROMPTS
+    )
+    
+    # Инициализация задач для прогнозирования криптовалют
+    crypto_forecast_tasks = CryptoForecastTasks(
+        cache_manager=cache_manager,
+        bybit_client=bybit_client,
+        forecast_service=crypto_forecast_service
+    )
+    
     # Запускаем фоновую задачу обновления кэша лунного календаря
     update_calendar_task = asyncio.create_task(update_moon_calendar_cache_task(moon_calendar_tasks))
+    
+    # Запускаем фоновую задачу обновления прогнозов криптовалют
+    update_crypto_forecasts_task_obj = asyncio.create_task(update_crypto_forecasts_task(crypto_forecast_tasks))
     
     # Добавляем cache_manager в state приложения для доступа из роутеров/зависимостей
     # Это более надежный способ, чем передавать его через конструкторы роутеров, которые создает FastAPI
@@ -143,16 +207,22 @@ async def lifespan(app: FastAPI):
     app.state.moon_openrouter_service = moon_openrouter_service
     app.state.moon_calendar_tasks = moon_calendar_tasks
     app.state.book_czin_service = book_czin_service
+    app.state.bybit_client = bybit_client
+    app.state.crypto_forecast_service = crypto_forecast_service
+    app.state.crypto_forecast_tasks = crypto_forecast_tasks
     
     yield
     
     # Shutdown
     logger.info("Выключение Moon Calendar API Service...")
     update_calendar_task.cancel()
+    update_crypto_forecasts_task_obj.cancel()
     
     try:
         if not update_calendar_task.done():
              await update_calendar_task
+        if not update_crypto_forecasts_task_obj.done():
+             await update_crypto_forecasts_task_obj
     except asyncio.CancelledError:
         pass
     except Exception as e:
@@ -223,6 +293,7 @@ app.include_router(tarot.router, tags=["tarot"])
 app.include_router(astro_bot.router, tags=["astro_bot"])
 app.include_router(tarot_puzzlebot_router)
 app.include_router(book_czin.router)
+app.include_router(crypto_forecast.router)
 
 # ================= ENTRY POINT =================
 
