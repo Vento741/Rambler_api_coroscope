@@ -74,7 +74,7 @@ class BybitClient:
     async def get_klines(
         self, 
         symbol: str, 
-        interval: str = "1h",
+        interval: str = "60",
         limit: int = 200,
         start_time: Optional[int] = None,
         end_time: Optional[int] = None
@@ -83,7 +83,12 @@ class BybitClient:
         Получение исторических данных K-линий (свечей)
         
         :param symbol: Символ криптовалюты (например, "BTCUSDT")
-        :param interval: Интервал свечей (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 1w, 1M)
+        :param interval: Интервал свечей:
+            - Минуты: "1", "3", "5", "15", "30"
+            - Часы: "60" (1ч), "120" (2ч), "240" (4ч), "360" (6ч), "720" (12ч)
+            - Дни: "D" (1 день)
+            - Недели: "W" (1 неделя)
+            - Месяцы: "M" (1 месяц)
         :param limit: Максимальное количество записей (до 1000)
         :param start_time: Время начала в миллисекундах (опционально)
         :param end_time: Время окончания в миллисекундах (опционально)
@@ -131,9 +136,9 @@ class BybitClient:
             ticker_task = asyncio.create_task(self.get_ticker(symbol))
             
             # Получаем исторические данные за разные периоды
-            klines_1h_task = asyncio.create_task(self.get_klines(symbol, interval="1h", limit=24))  # 24 часа с интервалом 1 час
-            klines_4h_task = asyncio.create_task(self.get_klines(symbol, interval="4h", limit=42))  # 7 дней с интервалом 4 часа
-            klines_1d_task = asyncio.create_task(self.get_klines(symbol, interval="1d", limit=30))  # 30 дней с интервалом 1 день
+            klines_1h_task = asyncio.create_task(self.get_klines(symbol, interval="60", limit=24))  # 24 часа с интервалом 1 час
+            klines_4h_task = asyncio.create_task(self.get_klines(symbol, interval="240", limit=42))  # 7 дней с интервалом 4 часа
+            klines_1d_task = asyncio.create_task(self.get_klines(symbol, interval="D", limit=30))  # 30 дней с интервалом 1 день
             
             # Ожидаем завершения всех задач
             ticker_data = await ticker_task
