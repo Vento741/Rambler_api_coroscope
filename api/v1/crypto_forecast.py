@@ -347,6 +347,7 @@ async def puzzlebot_disclaimer():
 @router.post("/puzzlebot/market_data")
 @router.get("/puzzlebot/market_data")
 async def puzzlebot_market_data(
+    router_instance,
     request: Dict[str, Any] = None,
     crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     period: str = Query(None, description="Период прогноза (hour, day, week)"),
