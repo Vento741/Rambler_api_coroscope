@@ -197,7 +197,7 @@ class BybitClient:
         # Список наиболее популярных криптовалют
         popular_cryptos = [
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "MATICUSDT"
+            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "POLYUSDT"
         ]
         
         return popular_cryptos 
