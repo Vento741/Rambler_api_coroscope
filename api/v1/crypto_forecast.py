@@ -88,10 +88,11 @@ async def get_available_cryptos(
 @router.get("/puzzlebot/forecast")
 async def puzzlebot_forecast(
     request: Request,
-    data: Dict[str, Any] = None,
+    data: Dict[str, Any] = Body(None),
     symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     period: str = Query(None, description="Период прогноза (hour, day, week)"),
-    user_type: str = Query("free", description="Тип пользователя (free, premium)")
+    user_type: str = Query("free", description="Тип пользователя (free, premium)"),
+    force_refresh: bool = Query(False, description="Принудительное обновление прогноза")
 ):
     """
     Эндпоинт для интеграции с Telegram-ботом через puzzlebot.top
@@ -143,7 +144,7 @@ async def puzzlebot_forecast(
         forecast = await forecast_service.generate_forecast(
             symbol=symbol,
             period=period,
-            force_refresh=False
+            force_refresh=force_refresh
         )
         
         # Формируем ответ для puzzlebot.top
@@ -180,44 +181,6 @@ async def get_welcome_message(request: Request) -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Ошибка при получении приветственного сообщения: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/puzzlebot/forecast")
-async def get_forecast(
-    request: Request,
-    symbol: str = Query(..., description="Символ криптовалюты (например, BTC)"),
-    period: str = Query("day", description="Период прогноза (hour, day, week)"),
-    force_refresh: bool = Query(False, description="Принудительное обновление прогноза")
-) -> Dict[str, Any]:
-    """
-    Получение прогноза для криптовалюты
-    """
-    try:
-        forecast_service = request.app.state.crypto_forecast_service
-        
-        # Проверяем период
-        if period not in ["hour", "day", "week"]:
-            raise HTTPException(status_code=400, detail=f"Неверный период: {period}. Допустимые значения: hour, day, week")
-        
-        # Нормализуем символ (убираем USDT, если есть)
-        symbol = symbol.replace("USDT", "")
-        
-        # Генерируем прогноз
-        forecast_data = await forecast_service.generate_forecast(
-            symbol=f"{symbol}USDT",
-            period=period,
-            force_refresh=force_refresh
-        )
-        
-        # Формируем результат
-        result = {
-            "status": "success",
-            "forecast": forecast_data["forecast"]
-        }
-        
-        return result
-    except Exception as e:
-        logger.error(f"Ошибка при получении прогноза для {symbol}, период {period}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/puzzlebot/crypto_info")
@@ -324,7 +287,18 @@ async def process_bot_request(
             period = data.get("period", "day")
             force_refresh = data.get("force_refresh", False)
             
-            # Проверяем период
+            # Преобразуем период из текстового формата в код
+            period_mapping = {
+                "Ближайший час": "hour",
+                "На завтра": "day",
+                "На неделю": "week"
+            }
+            
+            # Если период указан в текстовом формате, преобразуем его
+            if period in period_mapping:
+                period = period_mapping[period]
+            
+            # Проверяем корректность периода
             if period not in ["hour", "day", "week"]:
                 return {
                     "status": "error",
@@ -346,7 +320,9 @@ async def process_bot_request(
                 "status": "success",
                 "forecast": forecast_data["forecast"],
                 "symbol": symbol,
-                "period": period
+                "period": period,
+                "current_price": forecast_data["current_price"],
+                "generated_at": forecast_data["generated_at"]
             }
         
         elif action == "get_available_cryptos":
