@@ -4,7 +4,7 @@ API эндпоинты для сервиса прогнозирования кр
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 
 from core.cache import CacheManager
@@ -88,12 +88,11 @@ async def get_available_cryptos(
 @router.post("/puzzlebot/forecast")
 @router.get("/puzzlebot/forecast")
 async def puzzlebot_forecast(
-    router_instance,
-    request: Dict[str, Any] = None,
+    request: Request,
+    data: Dict[str, Any] = None,
     symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     period: str = Query(None, description="Период прогноза (hour, day, week)"),
-    user_type: str = Query("free", description="Тип пользователя (free, premium)"),
-    forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
+    user_type: str = Query("free", description="Тип пользователя (free, premium)")
 ):
     """
     Эндпоинт для интеграции с Telegram-ботом через puzzlebot.top
@@ -108,11 +107,14 @@ async def puzzlebot_forecast(
     }
     """
     try:
+        # Получаем сервис из состояния приложения
+        forecast_service = request.app.state.crypto_forecast_service
+        
         # Получаем параметры из запроса или из query параметров
-        if request:
-            symbol = request.get("crypto_symbol", symbol or "BTC")
-            period = request.get("forecast_period", period or "day")
-            user_type = request.get("user_type", user_type)
+        if data:
+            symbol = data.get("crypto_symbol", symbol or "BTC")
+            period = data.get("forecast_period", period or "day")
+            user_type = data.get("user_type", user_type)
         else:
             symbol = symbol or "BTC"
             period = period or "day"
@@ -196,10 +198,9 @@ async def puzzlebot_welcome():
 @router.post("/puzzlebot/crypto_info")
 @router.get("/puzzlebot/crypto_info")
 async def puzzlebot_crypto_info(
-    router_instance,
-    request: Dict[str, Any] = None,
-    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
-    forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
+    request: Request,
+    data: Dict[str, Any] = None,
+    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)")
 ):
     """
     Эндпоинт для получения информации о криптовалюте перед выбором периода прогноза
@@ -212,9 +213,12 @@ async def puzzlebot_crypto_info(
     }
     """
     try:
+        # Получаем сервис из состояния приложения
+        forecast_service = request.app.state.crypto_forecast_service
+        
         # Получаем параметры из запроса или из query параметров
-        if request:
-            symbol = request.get("crypto_symbol", crypto_symbol or "BTC")
+        if data:
+            symbol = data.get("crypto_symbol", crypto_symbol or "BTC")
         else:
             symbol = crypto_symbol or "BTC"
         
@@ -349,11 +353,10 @@ async def puzzlebot_disclaimer():
 @router.post("/puzzlebot/market_data")
 @router.get("/puzzlebot/market_data")
 async def puzzlebot_market_data(
-    router_instance,
-    request: Dict[str, Any] = None,
+    request: Request,
+    data: Dict[str, Any] = None,
     crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
-    period: str = Query(None, description="Период прогноза (hour, day, week)"),
-    forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
+    period: str = Query(None, description="Период прогноза (hour, day, week)")
 ):
     """
     Эндпоинт для получения рыночных данных о криптовалюте в формате JSON
@@ -368,10 +371,13 @@ async def puzzlebot_market_data(
     }
     """
     try:
+        # Получаем сервис из состояния приложения
+        forecast_service = request.app.state.crypto_forecast_service
+        
         # Получаем параметры из запроса или из query параметров
-        if request:
-            symbol = request.get("crypto_symbol", crypto_symbol or "BTC")
-            period = request.get("period", period or "day")
+        if data:
+            symbol = data.get("crypto_symbol", crypto_symbol or "BTC")
+            period = data.get("period", period or "day")
         else:
             symbol = crypto_symbol or "BTC"
             period = period or "day"
