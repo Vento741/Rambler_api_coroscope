@@ -88,6 +88,7 @@ async def get_available_cryptos(
 @router.post("/puzzlebot/forecast")
 @router.get("/puzzlebot/forecast")
 async def puzzlebot_forecast(
+    router_instance,
     request: Dict[str, Any] = None,
     symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     period: str = Query(None, description="Период прогноза (hour, day, week)"),
@@ -195,6 +196,7 @@ async def puzzlebot_welcome():
 @router.post("/puzzlebot/crypto_info")
 @router.get("/puzzlebot/crypto_info")
 async def puzzlebot_crypto_info(
+    router_instance,
     request: Dict[str, Any] = None,
     crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
     forecast_service: CryptoForecastService = Depends(get_crypto_forecast_service)
