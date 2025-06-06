@@ -194,10 +194,10 @@ class BybitClient:
             # Получаем текущий тикер
             ticker_task = asyncio.create_task(self.get_ticker(symbol))
             
-            # Получаем исторические данные за разные периоды
-            klines_1h_task = asyncio.create_task(self.get_klines(symbol, interval="60", limit=24))  # 24 часа с интервалом 1 час
-            klines_4h_task = asyncio.create_task(self.get_klines(symbol, interval="240", limit=42))  # 7 дней с интервалом 4 часа
-            klines_1d_task = asyncio.create_task(self.get_klines(symbol, interval="D", limit=30))  # 30 дней с интервалом 1 день
+            # Получаем исторические данные за разные периоды. Увеличиваем лимиты для более глубокого анализа.
+            klines_1h_task = asyncio.create_task(self.get_klines(symbol, interval="60", limit=200))  # ~8 дней
+            klines_4h_task = asyncio.create_task(self.get_klines(symbol, interval="240", limit=200)) # ~33 дня
+            klines_1d_task = asyncio.create_task(self.get_klines(symbol, interval="D", limit=200))   # 200 дней
             
             # Ожидаем завершения всех задач
             ticker_data = await ticker_task

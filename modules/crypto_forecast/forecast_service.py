@@ -74,47 +74,32 @@ class CryptoForecastService:
         # Формируем текст с историческими данными
         historical_text = ""
         
-        # Добавляем данные по часам (последние 24 часа)
+        # Добавляем данные по часам (последние 200 свечей)
         if "1h" in historical_data and historical_data["1h"]:
-            historical_text += "\nДанные по часам (последние 24 часа):\n"
-            for i, kline in enumerate(historical_data["1h"][:24]):
-                if len(kline) >= 4:
+            historical_text += "\nДанные по часам (200 свечей, ~8 дней):\n"
+            for kline in historical_data["1h"]:
+                if len(kline) >= 6:
                     timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d %H:%M")
-                    open_price = kline[1]
-                    high_price = kline[2]
-                    low_price = kline[3]
-                    close_price = kline[4]
-                    volume = kline[5]
-                    
-                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+                    open_price, high_price, low_price, close_price, volume = kline[1:6]
+                    historical_text += f"- {timestamp}: O:{open_price}, H:{high_price}, L:{low_price}, C:{close_price}, V:{volume}\n"
         
-        # Добавляем данные по 4 часам (последние 7 дней)
-        if period in ["day", "week"] and "4h" in historical_data and historical_data["4h"]:
-            historical_text += "\nДанные по 4 часам (последние 7 дней):\n"
-            for i, kline in enumerate(historical_data["4h"][:42]):  # 42 периода по 4 часа = 7 дней
-                if len(kline) >= 4:
+        # Добавляем данные по 4 часам (последние 200 свечей)
+        if "4h" in historical_data and historical_data["4h"]:
+            historical_text += "\nДанные по 4 часам (200 свечей, ~33 дня):\n"
+            for kline in historical_data["4h"]:
+                if len(kline) >= 6:
                     timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d %H:%M")
-                    open_price = kline[1]
-                    high_price = kline[2]
-                    low_price = kline[3]
-                    close_price = kline[4]
-                    volume = kline[5]
-                    
-                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+                    open_price, high_price, low_price, close_price, volume = kline[1:6]
+                    historical_text += f"- {timestamp}: O:{open_price}, H:{high_price}, L:{low_price}, C:{close_price}, V:{volume}\n"
         
-        # Добавляем данные по дням (последние 30 дней)
-        if period == "week" and "1d" in historical_data and historical_data["1d"]:
-            historical_text += "\nДанные по дням (последние 30 дней):\n"
-            for i, kline in enumerate(historical_data["1d"][:30]):
-                if len(kline) >= 4:
+        # Добавляем данные по дням (последние 200 свечей)
+        if "1d" in historical_data and historical_data["1d"]:
+            historical_text += "\nДанные по дням (200 свечей, 200 дней):\n"
+            for kline in historical_data["1d"]:
+                if len(kline) >= 6:
                     timestamp = datetime.fromtimestamp(int(kline[0]) / 1000).strftime("%Y-%m-%d")
-                    open_price = kline[1]
-                    high_price = kline[2]
-                    low_price = kline[3]
-                    close_price = kline[4]
-                    volume = kline[5]
-                    
-                    historical_text += f"- {timestamp}: Открытие: {open_price}, Максимум: {high_price}, Минимум: {low_price}, Закрытие: {close_price}, Объем: {volume}\n"
+                    open_price, high_price, low_price, close_price, volume = kline[1:6]
+                    historical_text += f"- {timestamp}: O:{open_price}, H:{high_price}, L:{low_price}, C:{close_price}, V:{volume}\n"
         
         # Формируем текст с периодом прогноза
         period_text = ""
