@@ -3,6 +3,7 @@ API эндпоинты для сервиса прогнозирования кр
 """
 import logging
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, Body
 from fastapi.responses import JSONResponse
@@ -139,12 +140,17 @@ async def puzzlebot_forecast(
         
         # Проверяем корректность периода
         if period not in ["hour", "day", "week"]:
+            error_message = "Некорректный период прогноза. Допустимые значения: Ближайший час, На завтра, На неделю."
+            response = {
+                "status": "error",
+                "forecast": error_message,
+                "symbol": symbol,
+                "current_price": "N/A",
+                "generated_at": datetime.now().isoformat()
+            }
             return JSONResponse(
-                status_code=400,
-                content={
-                    "status": "error",
-                    "message": "Некорректный период прогноза. Допустимые значения: hour, day, week"
-                }
+                status_code=200,
+                content=response
             )
         
         # Генерируем прогноз
@@ -167,19 +173,33 @@ async def puzzlebot_forecast(
     
     except SymbolNotFoundError as e:
         logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/forecast")
-        available_cryptos = await forecast_service.get_available_cryptos()
-        return JSONResponse(
-            status_code=404,
-            content={"status": "error", "message": str(e), "available_symbols": available_cryptos}
-        )
+        error_message = f"{str(e)} Пожалуйста, используйте одну из доступных криптовалют."
+        response = {
+            "status": "error",
+            "forecast": error_message,
+            "symbol": e.symbol,
+            "current_price": "N/A",
+            "generated_at": datetime.now().isoformat()
+        }
+        return JSONResponse(status_code=200, content=response)
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса от puzzlebot: {e}", exc_info=True)
+        # Получаем параметры из запроса или из query параметров, чтобы вернуть символ в ответе
+        if data:
+            symbol = data.get("crypto_symbol", symbol or "BTC")
+        else:
+            symbol = symbol or "BTC"
+
+        response = {
+            "status": "error",
+            "forecast": f"Внутренняя ошибка сервера при генерации прогноза. Попробуйте позже.",
+            "symbol": symbol,
+            "current_price": "N/A",
+            "generated_at": datetime.now().isoformat()
+        }
         return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Ошибка при генерации прогноза: {str(e)}"
-            }
+            status_code=200,
+            content=response
         )
 
 @router.post("/puzzlebot/welcome")
@@ -303,16 +323,14 @@ async def process_bot_request(
     """
     Обработка запроса от бота
     """
+    forecast_service = request.app.state.crypto_forecast_service
+    action = data.get("action", "")
+    symbol = data.get("symbol", "BTC").replace("USDT", "")
+    period = data.get("period", "day")
+    
     try:
-        forecast_service = request.app.state.crypto_forecast_service
-        
-        # Получаем параметры из запроса
-        action = data.get("action", "")
-        
         # Обрабатываем различные типы запросов
         if action == "get_forecast":
-            symbol = data.get("symbol", "").replace("USDT", "")
-            period = data.get("period", "day")
             force_refresh = data.get("force_refresh", False)
             
             # Преобразуем период из текстового формата в код
@@ -330,7 +348,11 @@ async def process_bot_request(
             if period not in ["hour", "day", "week"]:
                 return {
                     "status": "error",
-                    "message": f"Неверный период: {period}. Допустимые значения: hour, day, week"
+                    "forecast": f"Неверный период: {period}. Допустимые значения: hour, day, week",
+                    "symbol": symbol,
+                    "period": period,
+                    "current_price": "N/A",
+                    "generated_at": datetime.now().isoformat()
                 }
             
             # Генерируем прогноз
@@ -367,7 +389,18 @@ async def process_bot_request(
             }
     
     except SymbolNotFoundError as e:
-        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в bot_request")
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в bot_request (action: {action})")
+        if action == "get_forecast":
+            return {
+                "status": "error",
+                "forecast": f"{str(e)} Пожалуйста, выберите другую криптовалюту.",
+                "symbol": e.symbol,
+                "period": period,
+                "current_price": "N/A",
+                "generated_at": datetime.now().isoformat()
+            }
+        
+        # Для других действий возвращаем стандартное сообщение об ошибке
         available_cryptos = await forecast_service.get_available_cryptos()
         return {
             "status": "error",
@@ -375,8 +408,17 @@ async def process_bot_request(
             "available_symbols": available_cryptos
         }
     except Exception as e:
-        logger.error(f"Ошибка при обработке запроса от бота: {e}", exc_info=True)
+        logger.error(f"Ошибка при обработке запроса от бота (action: {action}): {e}", exc_info=True)
+        if action == "get_forecast":
+            return {
+                "status": "error",
+                "forecast": f"Произошла внутренняя ошибка при генерации прогноза. Попробуйте позже.",
+                "symbol": symbol,
+                "period": period,
+                "current_price": "N/A",
+                "generated_at": datetime.now().isoformat()
+            }
         return {
             "status": "error",
-            "message": str(e)
+            "message": f"Произошла внутренняя ошибка: {str(e)}"
         } 
