@@ -174,6 +174,7 @@ CRYPTO_FORECAST_CACHE_TTL = {
 # Настройки фоновых задач
 BACKGROUND_TASKS = {
     "enabled": True,
+    "update_cache_interval_minutes": 60,  # Интервал обновления кэша лунного календаря в минутах
     "update_interval": {
         "popular_cryptos": 3600,  # 1 час
     }

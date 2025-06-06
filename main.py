@@ -56,7 +56,7 @@ async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
             logger.info("Несмотря на ошибку, продолжаем запуск периодического обновления.")
         
         # Проверяем настройки интервала обновления и TTL кэша
-        update_interval = config.BACKGROUND_TASKS["update_cache_interval_minutes"]
+        update_interval = config.BACKGROUND_TASKS.get("update_cache_interval_minutes", 60)  # По умолчанию 60 минут
         cache_ttl = config.CACHE_TTL_MINUTES
         
         if cache_ttl <= update_interval:

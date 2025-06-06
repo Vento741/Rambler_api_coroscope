@@ -58,7 +58,6 @@ async def get_crypto_forecast(
         forecast = await forecast_service.generate_forecast(
             symbol=symbol,
             period=period,
-            user_type=user_type,
             force_refresh=force_refresh
         )
         
@@ -144,7 +143,6 @@ async def puzzlebot_forecast(
         forecast = await forecast_service.generate_forecast(
             symbol=symbol,
             period=period,
-            user_type=user_type,
             force_refresh=False
         )
         
