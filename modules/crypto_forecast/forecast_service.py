@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from core.cache import CacheManager
 from core.openrouter_client import OpenRouterClient
-from modules.crypto_forecast.bybit_client import BybitClient
+from modules.crypto_forecast.bybit_client import BybitClient, SymbolNotFoundError
 import config
 
 logger = logging.getLogger(__name__)
@@ -176,10 +176,9 @@ class CryptoForecastService:
             if not symbol.endswith("USDT"):
                 symbol = f"{symbol}USDT"
             
-            # Проверяем кэш
+            # Проверяем кэш (проверка символа произойдет на уровне bybit_client)
             cache_key = self._generate_cache_key(symbol, period)
             
-            # Если не требуется принудительное обновление, пытаемся получить данные из кэша
             if not force_refresh and self.cache_manager.redis:
                 cached_data = await self.cache_manager.redis.get(cache_key)
                 if cached_data:
@@ -218,9 +217,7 @@ class CryptoForecastService:
             
             # Сохраняем в кэш с соответствующим TTL
             if self.cache_manager.redis:
-                # Получаем TTL из конфига в зависимости от периода
-                ttl = config.CRYPTO_FORECAST_CACHE_TTL.get(period, 3600)  # По умолчанию 1 час
-                
+                ttl = config.CRYPTO_FORECAST_CACHE_TTL.get(period, 3600)
                 await self.cache_manager.redis.set(
                     cache_key,
                     json.dumps(forecast_data),
@@ -230,6 +227,9 @@ class CryptoForecastService:
             
             return forecast_data
         
+        except SymbolNotFoundError:
+            # Просто пробрасываем ошибку выше, чтобы ее обработал API-слой
+            raise
         except Exception as e:
             logger.error(f"Ошибка при генерации прогноза для {symbol}, период {period}: {e}", exc_info=True)
             raise
@@ -241,19 +241,13 @@ class CryptoForecastService:
         :return: Словарь со списками криптовалют
         """
         try:
-            # Получаем популярные криптовалюты
             popular_cryptos = await self.bybit_client.get_popular_cryptos()
-            
-            # Получаем все доступные символы
             all_symbols = await self.bybit_client.get_available_symbols()
             
-            # Формируем результат
-            result = {
+            return {
                 "popular": [symbol.replace("USDT", "") for symbol in popular_cryptos],
                 "all": [symbol.replace("USDT", "") for symbol in all_symbols if symbol.endswith("USDT")]
             }
-            
-            return result
         
         except Exception as e:
             logger.error(f"Ошибка при получении списка доступных криптовалют: {e}", exc_info=True)

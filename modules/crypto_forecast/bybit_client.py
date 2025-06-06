@@ -11,6 +11,12 @@ from pybit.unified_trading import HTTP as PybitHTTP
 
 logger = logging.getLogger(__name__)
 
+class SymbolNotFoundError(ValueError):
+    """Исключение для несуществующего или неторгуемого символа."""
+    def __init__(self, message="Symbol not found", symbol=None):
+        self.symbol = symbol
+        super().__init__(message)
+
 class BybitClient:
     """
     Асинхронный клиент для работы с API биржи Bybit
@@ -42,6 +48,11 @@ class BybitClient:
             api_key=self.api_key,
             api_secret=self.api_secret
         )
+        
+        # Кэш для списка символов
+        self.available_symbols_cache: Optional[List[str]] = None
+        self.symbols_cache_time: Optional[datetime] = None
+        self.symbols_cache_ttl: timedelta = timedelta(hours=1)
         
         # Популярные криптовалюты
         self.popular_cryptos = [
@@ -104,6 +115,18 @@ class BybitClient:
         
         logger.info(f"BybitClient инициализирован. Testnet: {self.testnet}")
     
+    async def _validate_symbol(self, symbol: str):
+        """Проверяет валидность символа, используя кэшированный список."""
+        # Получаем полный список символов (с кэшированием)
+        available_symbols = await self.get_available_symbols()
+        if symbol not in available_symbols:
+            clean_symbol = symbol.replace('USDT', '')
+            logger.warning(f"Попытка запроса для невалидного символа: {symbol}")
+            raise SymbolNotFoundError(
+                message=f"Символ '{clean_symbol}' не найден или не торгуется.",
+                symbol=clean_symbol
+            )
+
     async def get_ticker(self, symbol: str) -> Dict[str, Any]:
         """
         Получение текущих данных тикера для указанного символа
@@ -111,6 +134,7 @@ class BybitClient:
         :param symbol: Символ криптовалюты (например, "BTCUSDT")
         :return: Данные тикера
         """
+        await self._validate_symbol(symbol)
         try:
             # Используем синхронный клиент pybit, т.к. он не имеет асинхронной версии
             result = self.client.get_tickers(
@@ -142,17 +166,13 @@ class BybitClient:
         Получение исторических данных K-линий (свечей)
         
         :param symbol: Символ криптовалюты (например, "BTCUSDT")
-        :param interval: Интервал свечей:
-            - Минуты: "1", "3", "5", "15", "30"
-            - Часы: "60" (1ч), "120" (2ч), "240" (4ч), "360" (6ч), "720" (12ч)
-            - Дни: "D" (1 день)
-            - Недели: "W" (1 неделя)
-            - Месяцы: "M" (1 месяц)
+        :param interval: Интервал свечей
         :param limit: Максимальное количество записей (до 1000)
         :param start_time: Время начала в миллисекундах (опционально)
         :param end_time: Время окончания в миллисекундах (опционально)
         :return: Список K-линий
         """
+        await self._validate_symbol(symbol)
         try:
             params = {
                 "category": "spot",
@@ -224,27 +244,46 @@ class BybitClient:
             logger.error(f"Ошибка при получении комплексных рыночных данных для {symbol}: {e}", exc_info=True)
             raise
     
-    async def get_available_symbols(self) -> List[str]:
+    async def get_available_symbols(self, force_refresh: bool = False) -> List[str]:
         """
-        Получение списка доступных символов криптовалют
+        Получение списка доступных символов криптовалют с кэшированием.
         
+        :param force_refresh: Принудительное обновление списка символов
         :return: Список символов
         """
+        now = datetime.now()
+        if not force_refresh and self.available_symbols_cache and self.symbols_cache_time and (now - self.symbols_cache_time < self.symbols_cache_ttl):
+            logger.debug("Возвращаем список символов из кэша BybitClient.")
+            return self.available_symbols_cache
+
         try:
+            logger.info("Обновление кэша списка символов Bybit...")
             result = self.client.get_instruments_info(
                 category="spot"
             )
             
             if result.get("retCode") == 0 and "result" in result and "list" in result["result"]:
                 symbols = [item["symbol"] for item in result["result"]["list"] if item["status"] == "Trading"]
-                logger.info(f"Успешно получен список доступных символов. Количество: {len(symbols)}")
+                logger.info(f"Успешно получен новый список доступных символов. Количество: {len(symbols)}")
+                
+                # Обновляем кэш
+                self.available_symbols_cache = symbols
+                self.symbols_cache_time = now
+                
                 return symbols
             else:
                 logger.error(f"Ошибка при получении списка символов: {result}")
+                # В случае ошибки возвращаем старые данные из кэша, если они есть
+                if self.available_symbols_cache:
+                    logger.warning("Возвращаем устаревшие данные из кэша символов из-за ошибки обновления.")
+                    return self.available_symbols_cache
                 raise Exception(f"Ошибка API Bybit: {result.get('retMsg', 'Неизвестная ошибка')}")
         
         except Exception as e:
             logger.error(f"Исключение при получении списка символов: {e}", exc_info=True)
+            if self.available_symbols_cache:
+                logger.warning("Возвращаем устаревшие данные из кэша символов из-за исключения при обновлении.")
+                return self.available_symbols_cache
             raise
     
     async def get_popular_cryptos(self) -> List[str]:

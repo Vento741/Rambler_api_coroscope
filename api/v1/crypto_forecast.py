@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from core.cache import CacheManager
 from core.openrouter_client import OpenRouterClient
-from modules.crypto_forecast.bybit_client import BybitClient
+from modules.crypto_forecast.bybit_client import BybitClient, SymbolNotFoundError
 from modules.crypto_forecast.forecast_service import CryptoForecastService
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,13 @@ async def get_crypto_forecast(
         
         return forecast
     
+    except SymbolNotFoundError as e:
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в /forecast/{symbol}")
+        available_cryptos = await forecast_service.get_available_cryptos()
+        raise HTTPException(
+            status_code=404,
+            detail={"message": str(e), "available_symbols": available_cryptos}
+        )
     except Exception as e:
         logger.error(f"Ошибка при получении прогноза для {symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогноза: {str(e)}")
@@ -158,6 +165,13 @@ async def puzzlebot_forecast(
         
         return response
     
+    except SymbolNotFoundError as e:
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/forecast")
+        available_cryptos = await forecast_service.get_available_cryptos()
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": str(e), "available_symbols": available_cryptos}
+        )
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса от puzzlebot: {e}", exc_info=True)
         return JSONResponse(
@@ -210,6 +224,13 @@ async def get_crypto_info(
         }
         
         return result
+    except SymbolNotFoundError as e:
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/crypto_info")
+        available_cryptos = await forecast_service.get_available_cryptos()
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": str(e), "available_symbols": available_cryptos}
+        )
     except Exception as e:
         logger.error(f"Ошибка при получении информации о криптовалюте {crypto_symbol}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -263,6 +284,13 @@ async def get_market_data(
         }
         
         return result
+    except SymbolNotFoundError as e:
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/market_data")
+        available_cryptos = await forecast_service.get_available_cryptos()
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": str(e), "available_symbols": available_cryptos}
+        )
     except Exception as e:
         logger.error(f"Ошибка при получении рыночных данных для {crypto_symbol}, период {period}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -283,7 +311,7 @@ async def process_bot_request(
         
         # Обрабатываем различные типы запросов
         if action == "get_forecast":
-            symbol = data.get("symbol", "")
+            symbol = data.get("symbol", "").replace("USDT", "")
             period = data.get("period", "day")
             force_refresh = data.get("force_refresh", False)
             
@@ -304,9 +332,6 @@ async def process_bot_request(
                     "status": "error",
                     "message": f"Неверный период: {period}. Допустимые значения: hour, day, week"
                 }
-            
-            # Нормализуем символ (убираем USDT, если есть)
-            symbol = symbol.replace("USDT", "")
             
             # Генерируем прогноз
             forecast_data = await forecast_service.generate_forecast(
@@ -341,6 +366,14 @@ async def process_bot_request(
                 "message": f"Неизвестное действие: {action}"
             }
     
+    except SymbolNotFoundError as e:
+        logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в bot_request")
+        available_cryptos = await forecast_service.get_available_cryptos()
+        return {
+            "status": "error",
+            "message": str(e),
+            "available_symbols": available_cryptos
+        }
     except Exception as e:
         logger.error(f"Ошибка при обработке запроса от бота: {e}", exc_info=True)
         return {
