@@ -43,6 +43,65 @@ class BybitClient:
             api_secret=self.api_secret
         )
         
+        # Популярные криптовалюты
+        self.popular_cryptos = [
+            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT"
+        ]
+        
+        # Словарь с полными названиями криптовалют
+        self.crypto_names = {
+            "BTC": "Bitcoin",
+            "ETH": "Ethereum",
+            "SOL": "Solana",
+            "BNB": "Binance Coin",
+            "XRP": "Ripple",
+            "ADA": "Cardano",
+            "DOGE": "Dogecoin",
+            "DOT": "Polkadot",
+            "AVAX": "Avalanche",
+            "MATIC": "Polygon",
+            "LINK": "Chainlink",
+            "UNI": "Uniswap",
+            "ATOM": "Cosmos",
+            "LTC": "Litecoin",
+            "ALGO": "Algorand",
+            "NEAR": "NEAR Protocol",
+            "FTM": "Fantom",
+            "AAVE": "Aave",
+            "GRT": "The Graph",
+            "SNX": "Synthetix",
+            "SHIB": "Shiba Inu",
+            "FIL": "Filecoin",
+            "ICP": "Internet Computer",
+            "VET": "VeChain",
+            "XLM": "Stellar",
+            "EOS": "EOS",
+            "SAND": "The Sandbox",
+            "MANA": "Decentraland",
+            "THETA": "Theta Network",
+            "XTZ": "Tezos",
+            "AXS": "Axie Infinity",
+            "NEO": "NEO",
+            "EGLD": "Elrond",
+            "KSM": "Kusama",
+            "XMR": "Monero",
+            "HBAR": "Hedera",
+            "ONE": "Harmony",
+            "ENJ": "Enjin Coin",
+            "GALA": "Gala",
+            "ROSE": "Oasis Network",
+            "CHZ": "Chiliz",
+            "ZEC": "Zcash",
+            "DASH": "Dash",
+            "BAT": "Basic Attention Token",
+            "CAKE": "PancakeSwap",
+            "RUNE": "THORChain",
+            "COMP": "Compound",
+            "YFI": "yearn.finance",
+            "SUSHI": "SushiSwap"
+        }
+        
         logger.info(f"BybitClient инициализирован. Testnet: {self.testnet}")
     
     async def get_ticker(self, symbol: str) -> Dict[str, Any]:
@@ -194,10 +253,17 @@ class BybitClient:
         
         :return: Список символов популярных криптовалют
         """
-        # Список наиболее популярных криптовалют
-        popular_cryptos = [
-            "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "POLYUSDT"
-        ]
+        return self.popular_cryptos
+
+    def get_crypto_full_name(self, symbol: str) -> str:
+        """
+        Получить полное название криптовалюты по символу
         
-        return popular_cryptos 
+        :param symbol: Символ криптовалюты (например, BTC)
+        :return: Полное название криптовалюты
+        """
+        # Нормализуем символ (убираем USDT, если есть)
+        clean_symbol = symbol.replace("USDT", "")
+        
+        # Возвращаем полное название или сам символ, если название не найдено
+        return self.crypto_names.get(clean_symbol, clean_symbol) 

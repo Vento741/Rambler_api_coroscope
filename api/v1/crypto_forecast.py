@@ -4,7 +4,7 @@ API эндпоинты для сервиса прогнозирования кр
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request, Body
 from fastapi.responses import JSONResponse
 
 from core.cache import CacheManager
@@ -171,289 +171,205 @@ async def puzzlebot_forecast(
 
 @router.post("/puzzlebot/welcome")
 @router.get("/puzzlebot/welcome")
-async def puzzlebot_welcome():
+async def get_welcome_message(request: Request) -> Dict[str, Any]:
     """
-    Эндпоинт для получения приветственного сообщения и инструкций
-    
-    Возвращает приветственное сообщение и инструкции для пользователя
+    Получение приветственного сообщения
     """
     try:
-        welcome_message = {
+        return {
             "status": "success",
-            "welcome_message": "🚀 Добро пожаловать в Крипто-Прогноз!\n\nНаш сервис использует передовые технологии искусственного интеллекта для анализа рыночных данных и предоставления детальных прогнозов по криптовалютам.\n\n📊 Выберите криптовалюту для анализа:"
+            "message": "Добро пожаловать в API прогнозов криптовалют!"
         }
-        
-        return welcome_message
-    
     except Exception as e:
         logger.error(f"Ошибка при получении приветственного сообщения: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Ошибка при получении приветственного сообщения: {str(e)}"
-            }
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/puzzlebot/crypto_info")
-@router.get("/puzzlebot/crypto_info")
-async def puzzlebot_crypto_info(
+@router.get("/puzzlebot/forecast")
+async def get_forecast(
     request: Request,
-    data: Dict[str, Any] = None,
-    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)")
-):
+    symbol: str = Query(..., description="Символ криптовалюты (например, BTC)"),
+    period: str = Query("day", description="Период прогноза (hour, day, week)"),
+    force_refresh: bool = Query(False, description="Принудительное обновление прогноза")
+) -> Dict[str, Any]:
     """
-    Эндпоинт для получения информации о криптовалюте перед выбором периода прогноза
-    
-    Принимает запрос от puzzlebot.top и возвращает информацию о криптовалюте
-    
-    Ожидаемый формат запроса:
-    {
-        "crypto_symbol": "BTC"
-    }
+    Получение прогноза для криптовалюты
     """
     try:
-        # Получаем сервис из состояния приложения
         forecast_service = request.app.state.crypto_forecast_service
         
-        # Получаем параметры из запроса или из query параметров
-        if data:
-            symbol = data.get("crypto_symbol", crypto_symbol or "BTC")
-        else:
-            symbol = crypto_symbol or "BTC"
+        # Проверяем период
+        if period not in ["hour", "day", "week"]:
+            raise HTTPException(status_code=400, detail=f"Неверный период: {period}. Допустимые значения: hour, day, week")
         
-        # Нормализуем символ (добавляем USDT, если не указан)
-        if not symbol.endswith("USDT"):
-            symbol_with_usdt = f"{symbol}USDT"
-        else:
-            symbol_with_usdt = symbol
-            symbol = symbol.replace("USDT", "")
+        # Нормализуем символ (убираем USDT, если есть)
+        symbol = symbol.replace("USDT", "")
         
-        # Получаем данные о криптовалюте
-        try:
-            market_data = await forecast_service.bybit_client.get_market_data(symbol_with_usdt)
-            
-            # Получаем текущую цену и изменение за 24 часа
-            current_price = "Неизвестно"
-            price_change_24h = "Неизвестно"
-            
-            if "list" in market_data["ticker"] and market_data["ticker"]["list"] and len(market_data["ticker"]["list"]) > 0:
-                ticker_data = market_data["ticker"]["list"][0]
-                current_price = ticker_data.get("lastPrice", "Неизвестно")
-                
-                # Расчет изменения цены за 24 часа
-                if "prevPrice24h" in ticker_data and ticker_data["prevPrice24h"] and "price24hPcnt" in ticker_data:
-                    price_change_24h = ticker_data.get("price24hPcnt", "0")
-                    # Преобразуем в проценты и добавляем знак
-                    try:
-                        price_change_pct = float(price_change_24h) * 100
-                        price_change_24h = f"{'+' if price_change_pct >= 0 else ''}{price_change_pct:.2f}%"
-                    except (ValueError, TypeError):
-                        price_change_24h = "0.00%"
-            
-            # Определяем полное название криптовалюты
-            crypto_names = {
-                "BTC": "Bitcoin",
-                "ETH": "Ethereum",
-                "SOL": "Solana",
-                "BNB": "Binance Coin",
-                "XRP": "Ripple",
-                "ADA": "Cardano",
-                "DOGE": "Dogecoin",
-                "DOT": "Polkadot",
-                "AVAX": "Avalanche",
-                "MATIC": "Polygon",
-                "LINK": "Chainlink",
-                "UNI": "Uniswap",
-                "ATOM": "Cosmos",
-                "LTC": "Litecoin",
-                "ALGO": "Algorand",
-                "NEAR": "NEAR Protocol",
-                "FTM": "Fantom",
-                "AAVE": "Aave",
-                "GRT": "The Graph",
-                "SNX": "Synthetix"
-            }
-            
-            full_name = crypto_names.get(symbol, symbol)
-            
-            # Формируем ответ
-            response = {
-                "status": "success",
-                "symbol": symbol,
-                "full_name": full_name,
-                "current_price": current_price,
-                "price_change_24h": price_change_24h,
-                "message": f"💰 {symbol} - {full_name}\n\nТекущая цена: ${current_price}\n24ч изменение: {price_change_24h}\n\nВыберите период прогноза:"
-            }
-            
-            return response
-            
-        except Exception as e:
-            logger.error(f"Ошибка при получении данных о криптовалюте {symbol}: {e}", exc_info=True)
-            
-            # В случае ошибки возвращаем базовую информацию
-            crypto_names = {
-                "BTC": "Bitcoin",
-                "ETH": "Ethereum",
-                "SOL": "Solana",
-                "BNB": "Binance Coin",
-                "XRP": "Ripple"
-            }
-            
-            full_name = crypto_names.get(symbol, symbol)
-            
-            response = {
-                "status": "success",
-                "symbol": symbol,
-                "full_name": full_name,
-                "current_price": "Загрузка...",
-                "price_change_24h": "Загрузка...",
-                "message": f"💰 {symbol} - {full_name}\n\nЗагружаем актуальные данные...\n\nВыберите период прогноза:"
-            }
-            
-            return response
-    
-    except Exception as e:
-        logger.error(f"Ошибка при обработке запроса информации о криптовалюте: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Ошибка при получении информации о криптовалюте: {str(e)}"
-            }
+        # Генерируем прогноз
+        forecast_data = await forecast_service.generate_forecast(
+            symbol=f"{symbol}USDT",
+            period=period,
+            force_refresh=force_refresh
         )
+        
+        # Формируем результат
+        result = {
+            "status": "success",
+            "forecast": forecast_data["forecast"]
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении прогноза для {symbol}, период {period}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/puzzlebot/crypto_info")
+async def get_crypto_info(
+    request: Request,
+    crypto_symbol: str = Query(..., description="Символ криптовалюты (например, BTC)")
+) -> Dict[str, Any]:
+    """
+    Получение информации о криптовалюте
+    """
+    try:
+        forecast_service = request.app.state.crypto_forecast_service
+        
+        # Нормализуем символ (убираем USDT, если есть)
+        symbol = crypto_symbol.replace("USDT", "")
+        
+        # Получаем рыночные данные
+        market_data = await forecast_service.bybit_client.get_market_data(f"{symbol}USDT")
+        
+        # Формируем результат
+        result = {
+            "status": "success",
+            "symbol": symbol,
+            "full_name": forecast_service.bybit_client.get_crypto_full_name(symbol),
+            "current_price": market_data["ticker"]["list"][0].get("lastPrice", "Неизвестно") if "list" in market_data["ticker"] and market_data["ticker"]["list"] else "Неизвестно",
+            "price_change_24h": market_data["ticker"]["list"][0].get("price24hPcnt", "Неизвестно") if "list" in market_data["ticker"] and market_data["ticker"]["list"] else "Неизвестно"
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении информации о криптовалюте {crypto_symbol}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/puzzlebot/disclaimer")
 @router.get("/puzzlebot/disclaimer")
-async def puzzlebot_disclaimer():
+async def get_disclaimer(request: Request) -> Dict[str, Any]:
     """
-    Эндпоинт для получения отказа от ответственности
-    
-    Возвращает текст отказа от ответственности для отображения после прогноза
+    Получение отказа от ответственности
     """
     try:
-        disclaimer = {
-            "status": "success",
-            "disclaimer": "⚠️ ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ\n\nВсе прогнозы и аналитические данные предоставляются исключительно в информационных целях и не являются финансовым советом. Инвестиции в криптовалюты связаны с высоким риском, и вы можете потерять свои средства.\n\nПринимая решения о покупке или продаже активов, полагайтесь на собственный анализ и консультации с профессиональными финансовыми советниками.\n\nКоманда Крипто-Прогноза не несёт ответственности за любые финансовые потери, связанные с использованием предоставленной информации."
-        }
+        disclaimer = """⚠️ ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ
+
+Все прогнозы и аналитические данные предоставляются исключительно в информационных целях и не являются финансовым советом. Криптовалютный рынок крайне волатилен, и никакой анализ не может гарантировать точное предсказание будущих цен.
+
+Принимая решения о покупке или продаже криптовалют, полагайтесь на собственный анализ и консультации с профессиональными финансовыми советниками. Автор и разработчики этого сервиса не несут ответственности за любые финансовые потери, связанные с использованием предоставленной информации.
+
+Торговля криптовалютами сопряжена с высоким риском и может привести к потере значительной части или всех ваших инвестиций.
+"""
         
-        return disclaimer
-    
+        return {
+            "status": "success",
+            "disclaimer": disclaimer
+        }
     except Exception as e:
         logger.error(f"Ошибка при получении отказа от ответственности: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Ошибка при получении отказа от ответственности: {str(e)}"
-            }
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/puzzlebot/market_data")
 @router.get("/puzzlebot/market_data")
-async def puzzlebot_market_data(
+async def get_market_data(
     request: Request,
-    data: Dict[str, Any] = None,
-    crypto_symbol: str = Query(None, description="Символ криптовалюты (например, BTC)"),
-    period: str = Query(None, description="Период прогноза (hour, day, week)")
-):
+    crypto_symbol: str = Query(..., description="Символ криптовалюты (например, BTC)"),
+    period: str = Query("day", description="Период для исторических данных (hour, day, week)")
+) -> Dict[str, Any]:
     """
-    Эндпоинт для получения рыночных данных о криптовалюте в формате JSON
-    
-    Принимает запрос от puzzlebot.top и возвращает данные о криптовалюте
-    для дальнейшей передачи в модель
-    
-    Ожидаемый формат запроса:
-    {
-        "crypto_symbol": "BTC",
-        "period": "day"
-    }
+    Получение рыночных данных для криптовалюты
     """
     try:
-        # Получаем сервис из состояния приложения
         forecast_service = request.app.state.crypto_forecast_service
         
-        # Получаем параметры из запроса или из query параметров
-        if data:
-            symbol = data.get("crypto_symbol", crypto_symbol or "BTC")
-            period = data.get("period", period or "day")
-        else:
-            symbol = crypto_symbol or "BTC"
-            period = period or "day"
+        # Нормализуем символ (убираем USDT, если есть)
+        symbol = crypto_symbol.replace("USDT", "")
         
-        # Преобразуем период из текстового формата в код
-        period_mapping = {
-            "Ближайший час": "hour",
-            "На завтра": "day",
-            "На неделю": "week"
-        }
+        # Получаем рыночные данные
+        market_data = await forecast_service.bybit_client.get_market_data(f"{symbol}USDT")
         
-        # Если период указан в текстовом формате, преобразуем его
-        if period in period_mapping:
-            period = period_mapping[period]
-        
-        # Проверяем корректность периода
-        if period not in ["hour", "day", "week"]:
-            period = "day"  # По умолчанию используем дневной период
-        
-        # Нормализуем символ (добавляем USDT, если не указан)
-        if not symbol.endswith("USDT"):
-            symbol_with_usdt = f"{symbol}USDT"
-        else:
-            symbol_with_usdt = symbol
-            symbol = symbol.replace("USDT", "")
-        
-        # Получаем данные о криптовалюте
-        market_data = await forecast_service.bybit_client.get_market_data(symbol_with_usdt)
-        
-        # Получаем текущую цену
-        current_price = "Неизвестно"
-        if "list" in market_data["ticker"] and market_data["ticker"]["list"] and len(market_data["ticker"]["list"]) > 0:
-            current_price = market_data["ticker"]["list"][0].get("lastPrice", "Неизвестно")
-        
-        # Формируем упрощенные данные для передачи в модель
-        simplified_data = {
-            "symbol": symbol,
-            "current_price": current_price,
-            "ticker": market_data["ticker"],
-            "period": period
-        }
-        
-        # Добавляем исторические данные в зависимости от периода
-        if period == "hour":
-            # Для часового прогноза добавляем только часовые данные (последние 24 часа)
-            simplified_data["historical_data"] = {
-                "1h": market_data["historical_data"].get("1h", [])[:24]
-            }
-        elif period == "day":
-            # Для дневного прогноза добавляем часовые и 4-часовые данные
-            simplified_data["historical_data"] = {
-                "1h": market_data["historical_data"].get("1h", [])[:24],
-                "4h": market_data["historical_data"].get("4h", [])[:24]
-            }
-        else:  # week
-            # Для недельного прогноза добавляем все данные
-            simplified_data["historical_data"] = {
-                "1h": market_data["historical_data"].get("1h", [])[:24],
-                "4h": market_data["historical_data"].get("4h", [])[:42],
-                "1d": market_data["historical_data"].get("1d", [])[:30]
-            }
-        
-        # Формируем ответ
-        response = {
+        # Формируем результат
+        result = {
             "status": "success",
-            "market_data": simplified_data
+            "market_data": market_data
         }
         
-        return response
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при получении рыночных данных для {crypto_symbol}, период {period}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/puzzlebot/bot_request")
+async def process_bot_request(
+    request: Request,
+    data: Dict[str, Any] = Body(...),
+) -> Dict[str, Any]:
+    """
+    Обработка запроса от бота
+    """
+    try:
+        forecast_service = request.app.state.crypto_forecast_service
+        
+        # Получаем параметры из запроса
+        action = data.get("action", "")
+        
+        # Обрабатываем различные типы запросов
+        if action == "get_forecast":
+            symbol = data.get("symbol", "")
+            period = data.get("period", "day")
+            force_refresh = data.get("force_refresh", False)
+            
+            # Проверяем период
+            if period not in ["hour", "day", "week"]:
+                return {
+                    "status": "error",
+                    "message": f"Неверный период: {period}. Допустимые значения: hour, day, week"
+                }
+            
+            # Нормализуем символ (убираем USDT, если есть)
+            symbol = symbol.replace("USDT", "")
+            
+            # Генерируем прогноз
+            forecast_data = await forecast_service.generate_forecast(
+                symbol=f"{symbol}USDT",
+                period=period,
+                force_refresh=force_refresh
+            )
+            
+            # Формируем результат
+            return {
+                "status": "success",
+                "forecast": forecast_data["forecast"],
+                "symbol": symbol,
+                "period": period
+            }
+        
+        elif action == "get_available_cryptos":
+            # Получаем доступные криптовалюты
+            cryptos = await forecast_service.get_available_cryptos()
+            
+            # Формируем результат
+            return {
+                "status": "success",
+                "cryptos": cryptos
+            }
+        
+        else:
+            return {
+                "status": "error",
+                "message": f"Неизвестное действие: {action}"
+            }
     
     except Exception as e:
-        logger.error(f"Ошибка при получении рыночных данных для {symbol}: {e}", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={
-                "status": "error",
-                "message": f"Ошибка при получении рыночных данных: {str(e)}"
-            }
-        ) 
+        logger.error(f"Ошибка при обработке запроса от бота: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e)
+        } 

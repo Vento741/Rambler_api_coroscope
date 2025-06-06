@@ -74,31 +74,6 @@ async def update_moon_calendar_cache_task(tasks: MoonCalendarTasks):
         logger.critical(f"Критическая ошибка в фоновой задаче обновления кэша: {e}", exc_info=True)
         # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
 
-async def update_crypto_forecasts_task(tasks: CryptoForecastTasks):
-    """Фоновая задача обновления прогнозов криптовалют"""
-    try:
-        # Задержка перед запуском, чтобы не конфликтовать с другими задачами при старте
-        await asyncio.sleep(30)
-        
-        # Запускаем обновление прогнозов сразу при запуске
-        logger.info("Запуск начального обновления прогнозов криптовалют...")
-        try:
-            await tasks.update_popular_cryptos_forecasts()
-            logger.info("Начальное обновление прогнозов криптовалют выполнено успешно.")
-        except Exception as e:
-            logger.error(f"Ошибка при начальном обновлении прогнозов криптовалют: {e}", exc_info=True)
-            logger.info("Несмотря на ошибку, продолжаем запуск периодического обновления.")
-        
-        # Получаем интервал обновления из конфигурации
-        update_interval = config.BACKGROUND_TASKS.get("crypto_forecast_update_interval_minutes", 120)
-        
-        # Запускаем периодическое обновление
-        logger.info(f"Запуск периодического обновления прогнозов криптовалют каждые {update_interval} минут...")
-        await tasks.run_periodic_update(update_interval)
-    except Exception as e:
-        logger.critical(f"Критическая ошибка в фоновой задаче обновления прогнозов криптовалют: {e}", exc_info=True)
-        # Даже при критической ошибке не завершаем процесс, чтобы API продолжало работать
-
 # ================= APPLICATION =================
 
 @asynccontextmanager
@@ -185,18 +160,8 @@ async def lifespan(app: FastAPI):
         prompts_config=config.CRYPTO_FORECAST_PROMPTS
     )
     
-    # Инициализация задач для прогнозирования криптовалют
-    crypto_forecast_tasks = CryptoForecastTasks(
-        cache_manager=cache_manager,
-        bybit_client=bybit_client,
-        forecast_service=crypto_forecast_service
-    )
-    
     # Запускаем фоновую задачу обновления кэша лунного календаря
     update_calendar_task = asyncio.create_task(update_moon_calendar_cache_task(moon_calendar_tasks))
-    
-    # Запускаем фоновую задачу обновления прогнозов криптовалют
-    update_crypto_forecasts_task_obj = asyncio.create_task(update_crypto_forecasts_task(crypto_forecast_tasks))
     
     # Добавляем cache_manager в state приложения для доступа из роутеров/зависимостей
     # Это более надежный способ, чем передавать его через конструкторы роутеров, которые создает FastAPI
@@ -209,20 +174,16 @@ async def lifespan(app: FastAPI):
     app.state.book_czin_service = book_czin_service
     app.state.bybit_client = bybit_client
     app.state.crypto_forecast_service = crypto_forecast_service
-    app.state.crypto_forecast_tasks = crypto_forecast_tasks
     
     yield
     
     # Shutdown
     logger.info("Выключение Moon Calendar API Service...")
     update_calendar_task.cancel()
-    update_crypto_forecasts_task_obj.cancel()
     
     try:
         if not update_calendar_task.done():
              await update_calendar_task
-        if not update_crypto_forecasts_task_obj.done():
-             await update_crypto_forecasts_task_obj
     except asyncio.CancelledError:
         pass
     except Exception as e:

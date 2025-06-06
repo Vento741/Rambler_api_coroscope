@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from core.cache import CacheManager
 from core.openrouter_client import OpenRouterClient
 from modules.crypto_forecast.bybit_client import BybitClient
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class CryptoForecastService:
         :param cache_manager: Менеджер кэша
         :param bybit_client: Клиент для работы с Bybit API
         :param openrouter_client: Клиент для работы с OpenRouter API
-        :param prompts_config: Конфигурация промптов для разных типов пользователей
+        :param prompts_config: Конфигурация промптов
         """
         self.cache_manager = cache_manager
         self.bybit_client = bybit_client
@@ -52,15 +53,13 @@ class CryptoForecastService:
     async def _prepare_forecast_prompt(
         self,
         market_data: Dict[str, Any],
-        period: str,
-        user_type: str = "free"
+        period: str
     ) -> str:
         """
         Подготовка промпта для генерации прогноза
         
         :param market_data: Рыночные данные
         :param period: Период прогноза (hour, day, week)
-        :param user_type: Тип пользователя (free, premium)
         :return: Промпт для модели
         """
         symbol = market_data["symbol"]
@@ -126,7 +125,7 @@ class CryptoForecastService:
         elif period == "week":
             period_text = "на ближайшую неделю"
         
-        # Формируем промпт в зависимости от типа пользователя
+        # Формируем промпт
         prompt = f"""
 Проанализируй данные о криптовалюте {symbol} и сделай прогноз {period_text}.
 
@@ -151,7 +150,6 @@ class CryptoForecastService:
         self,
         symbol: str,
         period: str,
-        user_type: str = "free",
         force_refresh: bool = False
     ) -> Dict[str, Any]:
         """
@@ -159,7 +157,6 @@ class CryptoForecastService:
         
         :param symbol: Символ криптовалюты (например, "BTC", "ETH")
         :param period: Период прогноза ("hour", "day", "week")
-        :param user_type: Тип пользователя ("free", "premium")
         :param force_refresh: Принудительное обновление прогноза
         :return: Прогноз криптовалюты
         """
@@ -186,10 +183,10 @@ class CryptoForecastService:
             market_data = await self.bybit_client.get_market_data(symbol)
             
             # Подготавливаем промпт для модели
-            prompt = await self._prepare_forecast_prompt(market_data, period, user_type)
+            prompt = await self._prepare_forecast_prompt(market_data, period)
             
-            # Получаем конфигурацию промпта для типа пользователя
-            prompt_config = self.prompts_config.get(user_type, self.prompts_config.get("free", {}))
+            # Получаем конфигурацию промпта
+            prompt_config = self.prompts_config.get("default", {})
             
             # Генерируем прогноз с использованием модели
             forecast_text = await self.openrouter_client.generate_text(
@@ -206,19 +203,12 @@ class CryptoForecastService:
                 "current_price": market_data["ticker"]["list"][0].get("lastPrice", "Неизвестно") if "list" in market_data["ticker"] and market_data["ticker"]["list"] else "Неизвестно",
                 "forecast": forecast_text,
                 "generated_at": datetime.now().isoformat(),
-                "expires_at": (datetime.now() + timedelta(hours=1)).isoformat() if period == "hour" else 
-                             (datetime.now() + timedelta(days=1)).isoformat() if period == "day" else
-                             (datetime.now() + timedelta(days=3)).isoformat()  # для недельного прогноза
             }
             
-            # Сохраняем в кэш
+            # Сохраняем в кэш с соответствующим TTL
             if self.cache_manager.redis:
-                # Устанавливаем TTL в зависимости от периода
-                ttl = 3600  # 1 час для часового прогноза
-                if period == "day":
-                    ttl = 86400  # 24 часа для дневного прогноза
-                elif period == "week":
-                    ttl = 259200  # 3 дня для недельного прогноза
+                # Получаем TTL из конфига в зависимости от периода
+                ttl = config.CRYPTO_FORECAST_CACHE_TTL.get(period, 3600)  # По умолчанию 1 час
                 
                 await self.cache_manager.redis.set(
                     cache_key,
