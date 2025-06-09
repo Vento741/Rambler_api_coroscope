@@ -176,10 +176,10 @@ async def puzzlebot_forecast(
         logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/forecast")
         # Получаем список доступных криптовалют
         available_cryptos = await forecast_service.get_available_cryptos()
-        popular_cryptos = available_cryptos.get("popular_cryptos", [])[:5]  # Берем первые 5 популярных
+        popular_cryptos = available_cryptos.get("popular", [])[:15]  # Берем первые 15 популярных
         
         # Формируем строку с популярными криптовалютами
-        popular_list = ", ".join([crypto.replace("USDT", "") for crypto in popular_cryptos])
+        popular_list = ", ".join(popular_cryptos)
         
         error_message = f"{str(e)} Пожалуйста, выберите одну из доступных криптовалют. Популярные: {popular_list}"
         response = {
@@ -401,10 +401,10 @@ async def process_bot_request(
         if action == "get_forecast":
             # Получаем список доступных криптовалют
             available_cryptos = await forecast_service.get_available_cryptos()
-            popular_cryptos = available_cryptos.get("popular_cryptos", [])[:15]  # Берем первые 15 популярных
+            popular_cryptos = available_cryptos.get("popular", [])[:15]  # Берем первые 15 популярных
             
             # Формируем строку с популярными криптовалютами
-            popular_list = ", ".join([crypto.replace("USDT", "") for crypto in popular_cryptos])
+            popular_list = ", ".join(popular_cryptos)
             
             return {
                 "status": "error",
