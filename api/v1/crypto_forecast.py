@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from core.cache import CacheManager
 from core.openrouter_client import OpenRouterClient
+from modules.crypto_forecast import bybit_client
 from modules.crypto_forecast.bybit_client import BybitClient, SymbolNotFoundError
 from modules.crypto_forecast.forecast_service import CryptoForecastService
 
@@ -173,7 +174,14 @@ async def puzzlebot_forecast(
     
     except SymbolNotFoundError as e:
         logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в puzzlebot/forecast")
-        error_message = f"{str(e)} Пожалуйста, используйте одну из доступных криптовалют."
+        # Получаем список доступных криптовалют
+        available_cryptos = await forecast_service.get_available_cryptos()
+        popular_cryptos = available_cryptos.get("popular_cryptos", [])[:5]  # Берем первые 5 популярных
+        
+        # Формируем строку с популярными криптовалютами
+        popular_list = ", ".join([crypto.replace("USDT", "") for crypto in popular_cryptos])
+        
+        error_message = f"{str(e)} Пожалуйста, выберите одну из доступных криптовалют. Популярные: {popular_list}"
         response = {
             "status": "error",
             "forecast": error_message,
@@ -391,9 +399,16 @@ async def process_bot_request(
     except SymbolNotFoundError as e:
         logger.warning(f"Обработка SymbolNotFoundError для '{e.symbol}' в bot_request (action: {action})")
         if action == "get_forecast":
+            # Получаем список доступных криптовалют
+            available_cryptos = await forecast_service.get_available_cryptos()
+            popular_cryptos = available_cryptos.get("popular_cryptos", [])[:15]  # Берем первые 15 популярных
+            
+            # Формируем строку с популярными криптовалютами
+            popular_list = ", ".join([crypto.replace("USDT", "") for crypto in popular_cryptos])
+            
             return {
                 "status": "error",
-                "forecast": f"{str(e)} Пожалуйста, выберите другую криптовалюту.",
+                "forecast": f"{str(e)} Пожалуйста, выберите одну из доступных криптовалют. Популярные: {popular_list}",
                 "symbol": e.symbol,
                 "period": period,
                 "current_price": "N/A",
