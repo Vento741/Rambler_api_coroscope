@@ -48,6 +48,9 @@ async def get_crypto_forecast(
     Возвращает прогноз для указанной криптовалюты на указанный период
     """
     try:
+        # Преобразуем символ в верхний регистр
+        symbol = symbol.upper()
+        
         # Проверяем корректность периода
         if period not in ["hour", "day", "week"]:
             raise HTTPException(status_code=400, detail="Некорректный период прогноза. Допустимые значения: hour, day, week")
@@ -127,6 +130,9 @@ async def puzzlebot_forecast(
         else:
             symbol = symbol or "BTC"
             period = period or "day"
+        
+        # Преобразуем символ в верхний регистр
+        symbol = symbol.upper()
         
         # Преобразуем период из текстового формата в код
         period_mapping = {
@@ -236,6 +242,9 @@ async def get_crypto_info(
     try:
         forecast_service = request.app.state.crypto_forecast_service
         
+        # Преобразуем символ в верхний регистр
+        crypto_symbol = crypto_symbol.upper()
+        
         # Нормализуем символ (убираем USDT, если есть)
         symbol = crypto_symbol.replace("USDT", "")
         
@@ -299,6 +308,9 @@ async def get_market_data(
     try:
         forecast_service = request.app.state.crypto_forecast_service
         
+        # Преобразуем символ в верхний регистр
+        crypto_symbol = crypto_symbol.upper()
+        
         # Нормализуем символ (убираем USDT, если есть)
         symbol = crypto_symbol.replace("USDT", "")
         
@@ -335,6 +347,9 @@ async def process_bot_request(
     action = data.get("action", "")
     symbol = data.get("symbol", "BTC").replace("USDT", "")
     period = data.get("period", "day")
+    
+    # Преобразуем символ в верхний регистр
+    symbol = symbol.upper()
     
     try:
         # Обрабатываем различные типы запросов
