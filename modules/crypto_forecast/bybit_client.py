@@ -57,7 +57,9 @@ class BybitClient:
         # Популярные криптовалюты
         self.popular_cryptos = [
             "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT"
+            "ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "MATICUSDT",
+            "LINKUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT", "ALGOUSDT",
+            "NEARUSDT", "FTMUSDT", "AAVEUSDT", "SUIUSDT", "SHIBUSDT"
         ]
         
         # Словарь с полными названиями криптовалют
